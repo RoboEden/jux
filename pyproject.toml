@@ -18,7 +18,8 @@
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ]
     dependencies = [
-        "jax[cuda]",
+        "jax[cuda]~=0.3.24",
+        "chex",
     ]
     dynamic = ["version"]
 
@@ -29,15 +30,24 @@
 
     [project.optional-dependencies]
     dev = [
+        "toml",
+        "pre-commit",
         "pytype",
-        "rich", 
-        "tox", 
-        "pytest", 
+        "tox",
+        "pytest",
         "pytest-cov",
-        "isort", 
+        "isort",
         "autoflake",
-        "yapf",
+        "yapf[toml]",
+        "bump2version",
     ]
 
 [tool.setuptools.dynamic]
-version = { attr = "jux.__version__" }
+    version = { attr = "jux.__version__" }
+
+[tool.yapf]
+    column_limit = 120
+    indent_width = 4
+
+[tool.autoflake]
+    imports = ["jax", "numpy", "chex"]
