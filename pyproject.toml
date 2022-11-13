@@ -1,0 +1,43 @@
+[build-system]
+    requires = ["setuptools", "setuptools-scm"]
+    build-backend = "setuptools.build_meta"
+
+[project]
+    name = "jux"
+    description = "JUX is a jax-accelerated engine for Lux-2022."
+    requires-python = ">=3.7, <3.11"
+    license = { file = "LICENSE" }
+    readme = "README.md"
+    authors = [
+        { name = "Qimai Li", email = "qimaili@chaocanshu.ai" },
+        { name = "Yuhao Jiang", email = "yuhaojiang@chaocanshu.ai" },
+    ]
+    keywords = ["JAX", "LuxAI2022"]
+    classifiers = [
+        "Topic :: Games/Entertainment :: Real Time Strategy",
+        "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    ]
+    dependencies = [
+        "jax[cuda]",
+    ]
+    dynamic = ["version"]
+
+    [project.urls]
+    repository = "https://gitlab.parametrix.cn/parametrix/challenge/jux"
+    # TODO: add homepage url
+    # TODO: add documentation url
+
+    [project.optional-dependencies]
+    dev = [
+        "pytype",
+        "rich", 
+        "tox", 
+        "pytest", 
+        "pytest-cov",
+        "isort", 
+        "autoflake",
+        "yapf",
+    ]
+
+[tool.setuptools.dynamic]
+version = { attr = "jux.__version__" }
