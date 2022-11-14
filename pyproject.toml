@@ -38,7 +38,7 @@
         "pytest-cov",
         "isort",
         "autoflake",
-        "yapf[toml]",
+        "yapf",
         "bump2version",
     ]
 
