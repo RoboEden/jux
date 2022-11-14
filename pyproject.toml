@@ -18,6 +18,7 @@
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ]
     dependencies = [
+        "luxai2022==1.0.6",
         "jax[cuda]~=0.3.24",
         "chex",
     ]
