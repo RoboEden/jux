@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any, NamedTuple, Union
+from typing import NamedTuple
 
 from jax import Array
 from luxai2022.team import Team as LuxTeam
@@ -39,14 +39,15 @@ FactionTypes.FirstMars.alt_color = "red"
 
 class Team(NamedTuple):
     faction: FactionTypes
-    team_id: Union[int, Array]
+    team_id: int
     # agent: str # weather we need it?
-    init_water: Union[int, Array]
-    init_metal: Union[int, Array]
-    factories_to_place: Union[int, Array]
+    init_water: int
+    init_metal: int
+    factories_to_place: int
 
     # TODO: decide the data structure of factory_strains
-    factory_strains: Any
+    factory_strains: Array  # int[MAX_N_FACTORIES], factory_id belonging to this team
+    n_factory: int  # usually MAX_FACTORIES or MAX_FACTORIES + 1
 
     @classmethod
     def from_lux(self, lux_team: LuxTeam) -> "Team":
