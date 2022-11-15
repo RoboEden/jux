@@ -1,4 +1,6 @@
+import dataclasses
 from collections import namedtuple
+from copy import copy
 from typing import NamedTuple, Tuple
 
 from luxai2022.config import EnvConfig as LuxEnvConfig
@@ -27,12 +29,10 @@ class UnitConfig(NamedTuple):
 
     @classmethod
     def from_lux(cls, lux_unit_config: LuxUnitConfig) -> "UnitConfig":
-        # TODO
-        pass
+        return UnitConfig(**dataclasses.asdict(lux_unit_config))
 
     def to_lux(self) -> LuxUnitConfig:
-        # TODO
-        pass
+        return LuxUnitConfig(**self._asdict())
 
 
 class EnvConfig(NamedTuple):
@@ -168,12 +168,33 @@ class EnvConfig(NamedTuple):
 
     @classmethod
     def from_lux(cls, lux_env_config: LuxEnvConfig):
-        # TODO
-        pass
+        lux_env_config = copy(lux_env_config)
+
+        lux_env_config.UNIT_ACTION_QUEUE_POWER_COST = make_namedtuple(**lux_env_config.UNIT_ACTION_QUEUE_POWER_COST)
+        lux_env_config.ROBOTS = make_namedtuple(
+            **{name: UnitConfig.from_lux(unit_cfg)
+               for name, unit_cfg in lux_env_config.ROBOTS.items()})
+
+        lux_env_config.NUM_WEATHER_EVENTS_RANGE = tuple(lux_env_config.NUM_WEATHER_EVENTS_RANGE)
+        lux_env_config.WEATHER = make_namedtuple(
+            NONE=make_namedtuple(),
+            **{name: make_namedtuple(**weather_cfg)
+               for name, weather_cfg in lux_env_config.WEATHER.items()})
+
+        lux_env_config = dataclasses.asdict(lux_env_config)
+        lux_env_config.pop('WEATHER_ID_TO_NAME')
+        return EnvConfig(**lux_env_config)
 
     def to_lux(self) -> LuxEnvConfig:
-        # TODO
-        pass
+        self = self._asdict()
+        self['UNIT_ACTION_QUEUE_POWER_COST'] = self['UNIT_ACTION_QUEUE_POWER_COST']._asdict()
+        self['ROBOTS'] = {name: unit_cfg.to_lux() for name, unit_cfg in self['ROBOTS']._asdict().items()}
+        self['WEATHER'] = {name: weather_cfg._asdict() for name, weather_cfg in self['WEATHER']._asdict().items()}
+        self['NUM_WEATHER_EVENTS_RANGE'] = list(self['NUM_WEATHER_EVENTS_RANGE'])
+        self['WEATHER_ID_TO_NAME'] = list(self['WEATHER'].keys())
+        self['WEATHER'].pop('NONE')
+
+        return LuxEnvConfig(**self)
 
 
 default = EnvConfig()
