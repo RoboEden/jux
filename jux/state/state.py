@@ -6,12 +6,9 @@ from luxai2022.state import State as LuxState
 
 from jux.config import EnvConfig
 from jux.factory import Factory
+from jux.map import Board
 from jux.team import Team
 from jux.unit import Unit
-
-
-class Board(NamedTuple):
-    pass
 
 
 class JuxState(NamedTuple):
