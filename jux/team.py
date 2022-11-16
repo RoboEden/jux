@@ -105,4 +105,4 @@ class Team(NamedTuple):
         return (self.faction == __o.faction and self.team_id == __o.team_id and self.init_water == __o.init_water
                 and self.init_metal == __o.init_metal and self.factories_to_place == __o.factories_to_place
                 and self.n_factory == __o.n_factory
-                and (self.factory_strains[:self.n_factory] == __o.factory_strains[:__o.n_factory]).all())
+                and jnp.array_equal(self.factory_strains[:self.n_factory], __o.factory_strains[:__o.n_factory]))
