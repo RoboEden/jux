@@ -1,7 +1,7 @@
 import dataclasses
 from collections import namedtuple
 from copy import copy
-from typing import NamedTuple, Tuple
+from typing import Any, Dict, NamedTuple, Tuple
 
 from luxai2022.config import EnvConfig as LuxEnvConfig
 from luxai2022.config import UnitConfig as LuxUnitConfig
@@ -56,7 +56,7 @@ class EnvConfig(NamedTuple):
     DAY_LENGTH: int = 30
     UNIT_ACTION_QUEUE_SIZE: int = 20  # when set to 1, then no action queue is used
 
-    UNIT_ACTION_QUEUE_POWER_COST: Tuple[int, int] = make_namedtuple(
+    UNIT_ACTION_QUEUE_POWER_COST: Tuple[int, int] = make_namedtuple(  # pytype: disable=annotation-type-mismatch
         LIGHT=1,  # UnitType.LIGHT
         HEAVY=10,  # UnitType.HEAVY
     )
@@ -93,7 +93,7 @@ class EnvConfig(NamedTuple):
     # so we set it to 0
 
     #### Units ####
-    ROBOTS: Tuple[UnitConfig, UnitConfig] = make_namedtuple(
+    ROBOTS: Tuple[UnitConfig, UnitConfig] = make_namedtuple(  # pytype: disable=annotation-type-mismatch
         # UnitType.LIGHT
         LIGHT=UnitConfig(
             METAL_COST=10,
@@ -133,8 +133,8 @@ class EnvConfig(NamedTuple):
     #### Weather ####
     # WEATHER_ID_TO_NAME: list = dataclasses.field(
     #     default_factory=lambda: ["NONE", "MARS_QUAKE", "COLD_SNAP", "DUST_STORM", "SOLAR_FLARE"])
-    NUM_WEATHER_EVENTS_RANGE: Tuple[int] = (3, 5)
-    WEATHER: Tuple[NamedTuple, NamedTuple, NamedTuple, NamedTuple, NamedTuple] = make_namedtuple(
+    NUM_WEATHER_EVENTS_RANGE: Tuple[int, int] = (3, 5)
+    WEATHER: Tuple[NamedTuple, NamedTuple, NamedTuple, NamedTuple, NamedTuple] = make_namedtuple(  # pytype: disable=annotation-type-mismatch
         # Weather.NONE
         NONE=make_namedtuple(),
         # Weather.MARS_QUAKE
@@ -186,7 +186,7 @@ class EnvConfig(NamedTuple):
         return EnvConfig(**lux_env_config)
 
     def to_lux(self) -> LuxEnvConfig:
-        self = self._asdict()
+        self: Dict[str, Any] = self._asdict()
         self['UNIT_ACTION_QUEUE_POWER_COST'] = self['UNIT_ACTION_QUEUE_POWER_COST']._asdict()
         self['ROBOTS'] = {name: unit_cfg.to_lux() for name, unit_cfg in self['ROBOTS']._asdict().items()}
         self['WEATHER'] = {name: weather_cfg._asdict() for name, weather_cfg in self['WEATHER']._asdict().items()}

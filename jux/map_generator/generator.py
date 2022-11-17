@@ -60,8 +60,10 @@ class GameMap(NamedTuple):
 
         return LuxGameMap(rubble, ice, ore, SymmetryType.to_lux(self.symmetry))
 
-    def __eq__(self, __o: object) -> bool:
+    def __eq__(self, __o: 'GameMap') -> bool:
         width, height = self.width, self.height
+        if not isinstance(__o, GameMap):
+            return False
         return (self.width == __o.width and self.height == __o.height and self.symmetry == __o.symmetry
                 and jnp.array_equal(self.rubble[:height, :width], __o.rubble[:height, :width])
                 and jnp.array_equal(self.ice[:height, :width], __o.ice[:height, :width])

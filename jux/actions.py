@@ -218,5 +218,7 @@ class ActionQueue(NamedTuple):
     def is_empty(self) -> bool:
         return self.count == 0
 
-    def __eq__(self, __o: object) -> bool:
+    def __eq__(self, __o: 'ActionQueue') -> bool:
+        if not isinstance(__o, ActionQueue):
+            return False
         return (self.count == __o.count) and jnp.array_equal(self._get_sorted_data(), __o._get_sorted_data())

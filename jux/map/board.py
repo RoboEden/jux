@@ -187,7 +187,9 @@ class Board(NamedTuple):
     def ore(self) -> Array:
         return self.map.ore
 
-    def __eq__(self, __o: object) -> bool:
+    def __eq__(self, __o: "Board") -> bool:
+        if not isinstance(__o, Board):
+            return False
         return (self.height == __o.height and self.width == __o.width and self.seed == __o.seed
                 and self.factories_per_team == __o.factories_per_team and self.map == __o.map
                 and jnp.array_equal(self.lichen, __o.lichen)

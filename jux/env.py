@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Dict, Tuple
 
 import jax
 
@@ -12,13 +12,13 @@ class Jux:
         # TODO
         pass
 
-    def reset(self, seed: jax.random.PRNGKey) -> Tuple[JuxState, Tuple['obs', int, bool, 'info']]:
+    def reset(self, seed: jax.random.PRNGKey) -> Tuple[JuxState, Tuple[Dict, int, bool, Dict]]:
         # TODO
-        return jux_state, (obs, reward, done, info)
+        raise NotImplementedError
 
-    def step(self, action) -> Tuple[JuxState, Tuple['obs', int, bool, 'info']]:
+    def step(self, action) -> Tuple[JuxState, Tuple[Dict, int, bool, Dict]]:
         # TODO
-        return jux_state, (obs, reward, done, info)
+        raise NotImplementedError
 
 
 class JuxAI2022:

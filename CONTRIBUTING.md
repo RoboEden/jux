@@ -25,7 +25,7 @@ $ pytest
 
 Check your code with pytype and make it happy (Optional).
 ```console
-$ pytype .
+$ pytype jux -k -j 4
 ```
 If you are sure that pytype is complaining about a false positive, you can add a `# pytype: disable=...` comment to the offending line.
 

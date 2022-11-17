@@ -31,8 +31,8 @@ class JuxState(NamedTuple):
     @classmethod
     def from_lux(cls, lux_state: LuxState) -> "JuxState":
         # TODO
-        pass
+        raise NotImplementedError
 
     def to_lux(self) -> LuxState:
         # TODO
-        pass
+        raise NotImplementedError
