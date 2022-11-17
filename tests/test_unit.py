@@ -1,7 +1,11 @@
 import chex
 from jax import numpy as jnp
+from luxai2022.team import FactionTypes as LuxFactionTypes
 
-from jux.unit import EnvConfig, ResourceType, Unit, UnitType
+from jux.config import EnvConfig
+from jux.team import LuxTeam
+from jux.unit import LuxUnit, LuxUnitType, Unit, UnitType
+from jux.unit_cargo import ResourceType
 
 
 class TestUnit(chex.TestCase):
@@ -47,3 +51,12 @@ class TestUnit(chex.TestCase):
         chex.assert_type(transfer_amount, int)
         assert transfer_amount == 10
         assert unit.cargo.ice == 90
+
+    def test_to_from_lux(self):
+        env_cfg = EnvConfig()
+        lux_env_cfg = env_cfg.to_lux()
+        lux_teams = [LuxTeam(0, LuxFactionTypes.AlphaStrike)]
+        lux_unit = LuxUnit(team=lux_teams[0], unit_type=LuxUnitType.HEAVY, unit_id="unit_1", env_cfg=lux_env_cfg)
+
+        jux_unit = Unit.from_lux(lux_unit, env_cfg)
+        assert jux_unit == Unit.from_lux(jux_unit.to_lux(lux_teams, lux_env_cfg), env_cfg)

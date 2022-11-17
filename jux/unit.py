@@ -1,87 +1,39 @@
 from enum import IntEnum
-from typing import NamedTuple, Tuple, Union
+from typing import List, NamedTuple, Tuple, Union
 
 import jax.numpy as jnp
 from jax import Array, lax
+from luxai2022.config import EnvConfig as LuxEnvConfig
+from luxai2022.team import Team as LuxTeam
 from luxai2022.unit import Unit as LuxUnit
-from luxai2022.unit import UnitCargo as LuxUnitCargo
+from luxai2022.unit import UnitType as LuxUnitType
 
+from jux.actions import ActionQueue
 from jux.config import EnvConfig, UnitConfig
 from jux.map.position import Position
+from jux.unit_cargo import ResourceType, UnitCargo
 
 
 class UnitType(IntEnum):
     LIGHT = 0
     HEAVY = 1
 
-
-class ResourceType(IntEnum):
-    ice = 0
-    ore = 1
-    water = 2
-    metal = 3
-    power = 4
-
-
-class UnitCargo(NamedTuple):
-    stock: Array = jnp.zeros(4, jnp.int32)  # int[4]
-
-    @property
-    def ice(self):
-        return self.stock[ResourceType.ice]
-
-    @property
-    def ore(self):
-        return self.stock[ResourceType.ore]
-
-    @property
-    def water(self):
-        return self.stock[ResourceType.water]
-
-    @property
-    def metal(self):
-        return self.stock[ResourceType.metal]
-
     @classmethod
-    def from_lux(cls, lux_cargo: LuxUnitCargo) -> "UnitCargo":
-        # TODO
-        pass
+    def from_lux(cls, lux_unit_type: LuxUnitType) -> "UnitType":
+        if lux_unit_type == LuxUnitType.LIGHT:
+            return cls.LIGHT
+        elif lux_unit_type == LuxUnitType.HEAVY:
+            return cls.HEAVY
+        else:
+            raise ValueError(f"Unknown unit type {lux_unit_type}")
 
-    def to_lux(self) -> LuxUnitCargo:
-        # TODO
-        pass
-
-    def add_resource(self,
-                     resource: ResourceType,
-                     amount: int,
-                     cargo_space: int = jnp.iinfo(jnp.int32).max // 2) -> Union[int, Array]:
-        '''JUX implementation for luxai2022.unit.Unit.add_resource and luxai2022.factory.Factory.add_resource.
-
-        For Unit, cargo_space should be unit.cargo_space.
-        For Factory, cargo_space should be inf (here is int32.max//2).
-
-        Returns:
-            int: the amount of resource that really transferred.
-        '''
-        amount = jnp.maximum(amount, 0)
-        stock = self.stock[resource]
-        transfer_amount = jnp.minimum(cargo_space - stock, amount)
-        new_stock = self.stock.at[resource].add(transfer_amount)
-        new_cargo = self._replace(stock=new_stock)
-        return new_cargo, transfer_amount
-
-    def sub_resource(self, resource: ResourceType, amount: int) -> Union[int, Array]:
-        '''JUX implementation for luxai2022.unit.Unit.sub_resource and luxai2022.factory.Factory.sub_resource.
-
-        Returns:
-            int: the amount of resource that really transferred.
-        '''
-        amount = jnp.maximum(amount, 0)
-        stock = self.stock[resource]
-        transfer_amount = jnp.minimum(stock, amount)
-        new_stock = self.stock.at[resource].add(-transfer_amount)
-        new_cargo = self._replace(stock=new_stock)
-        return new_cargo, transfer_amount
+    def to_lux(self) -> LuxUnitType:
+        if self == self.LIGHT:
+            return LuxUnitType.LIGHT
+        elif self == self.HEAVY:
+            return LuxUnitType.HEAVY
+        else:
+            raise ValueError(f"Unknown unit type {self}")
 
 
 class Unit(NamedTuple):
@@ -92,7 +44,7 @@ class Unit(NamedTuple):
     pos: Position
 
     cargo: UnitCargo
-    action_queue: Array  # int[UNIT_ACTION_QUEUE_SIZE, 5]
+    action_queue: ActionQueue  # int[UNIT_ACTION_QUEUE_SIZE, 5]
     unit_cfg: UnitConfig
     power: int
 
@@ -118,13 +70,34 @@ class Unit(NamedTuple):
         return self.unit_cfg.BATTERY_CAPACITY
 
     @classmethod
-    def from_lux(cls, lux_cargo: LuxUnit) -> "Unit":
-        # TODO
-        pass
+    def from_lux(cls, lux_unit: LuxUnit, env_cfg: EnvConfig) -> "Unit":
+        unit_id = int(lux_unit.unit_id[len('unit_'):])
+        return Unit(
+            unit_type=UnitType.from_lux(lux_unit.unit_type),
+            team_id=lux_unit.team_id,
+            unit_id=unit_id,
+            pos=Position.from_lux(lux_unit.pos),
+            cargo=UnitCargo.from_lux(lux_unit.cargo),
+            action_queue=ActionQueue.from_lux(lux_unit.action_queue, env_cfg.UNIT_ACTION_QUEUE_SIZE),
+            unit_cfg=UnitConfig.from_lux(lux_unit.unit_cfg),
+            power=lux_unit.power,
+        )
 
-    def to_lux(self) -> LuxUnit:
-        # TODO
-        pass
+    def to_lux(self, lux_teams: List[LuxTeam], lux_env_cfg: LuxEnvConfig) -> LuxUnit:
+        lux_unit = LuxUnit(
+            team=lux_teams[self.team_id],
+            unit_type=self.unit_type.to_lux(),
+            unit_id=f"unit_{self.unit_id}",
+            env_cfg=lux_env_cfg,
+        )
+        lux_unit.pos = self.pos.to_lux()
+        lux_unit.cargo = self.cargo.to_lux()
+        lux_unit.power = int(self.power)
+        lux_unit.action_queue = self.action_queue.to_lux()
+        return lux_unit
+
+    # def __eq__(self, __o: object) -> bool:
+    #     return isinstance(__o, Unit) and self.unit_id == __o.unit_id and self.team_id == __o.team_id and self.unit_type == __o.unit_type
 
     def is_heavy(self) -> Union[bool, Array]:
         return self.unit_type == UnitType.HEAVY
