@@ -190,7 +190,9 @@ class Board(NamedTuple):
     def __eq__(self, __o: object) -> bool:
         return (self.height == __o.height and self.width == __o.width and self.seed == __o.seed
                 and self.factories_per_team == __o.factories_per_team and self.map == __o.map
-                and (self.lichen == __o.lichen).all() and (self.lichen_strains == __o.lichen_strains).all()
-                and (self.units_map == __o.units_map).all() and (self.factory_map == __o.factory_map).all()
-                and (self.factory_occupancy_map == __o.factory_occupancy_map).all()
-                and (self.spawn_masks == __o.spawn_masks).all())
+                and jnp.array_equal(self.lichen, __o.lichen)
+                and jnp.array_equal(self.lichen_strains, __o.lichen_strains)
+                and jnp.array_equal(self.units_map, __o.units_map)
+                and jnp.array_equal(self.factory_map, __o.factory_map)
+                and jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map)
+                and jnp.array_equal(self.spawn_masks, __o.spawn_masks))

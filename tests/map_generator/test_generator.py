@@ -5,8 +5,8 @@ from jux.map_generator.generator import GameMap, LuxGameMap
 
 
 def lux_game_map_eq(a: LuxGameMap, b: LuxGameMap) -> bool:
-    return (a.height == b.height and a.width == b.width and a.symmetry == b.symmetry and (a.rubble == b.rubble).all()
-            and (a.ice == b.ice).all() and (a.ore == b.ore).all())
+    return (a.height == b.height and a.width == b.width and a.symmetry == b.symmetry
+            and np.array_equal(a.rubble, b.rubble) and np.array_equal(a.ice, b.ice) and np.array_equal(a.ore, b.ore))
 
 
 class TestGameMap:

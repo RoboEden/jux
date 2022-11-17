@@ -14,12 +14,13 @@ def lux_board_eq(a: LuxBoard, b: LuxBoard) -> bool:
     b_spawns1 = np.unique(b.spawns['player_1'], axis=0)
 
     return (a.height == b.height and a.width == b.width and a.seed == b.seed
-            and a.factories_per_team == b.factories_per_team and (a.lichen == b.lichen).all()
-            and (a.lichen_strains == b.lichen_strains).all() and a.units_map == b.units_map
-            and a.factory_map == b.factory_map and (a.factory_occupancy_map == b.factory_occupancy_map).all()
-            and lux_game_map_eq(a.map, b.map) and (a_spawns0 == b_spawns0).all() and (a_spawns1 == b_spawns1).all()
-            and (a.spawn_masks['player_0'] == b.spawn_masks['player_0']).all()
-            and (a.spawn_masks['player_1'] == b.spawn_masks['player_1']).all())
+            and a.factories_per_team == b.factories_per_team and np.array_equal(a.lichen, b.lichen)
+            and np.array_equal(a.lichen_strains, b.lichen_strains) and a.units_map == b.units_map
+            and a.factory_map == b.factory_map and np.array_equal(a.factory_occupancy_map, b.factory_occupancy_map)
+            and lux_game_map_eq(a.map, b.map) and np.array_equal(a_spawns0, b_spawns0)
+            and np.array_equal(a_spawns1, b_spawns1)
+            and np.array_equal(a.spawn_masks['player_0'], b.spawn_masks['player_0'])
+            and np.array_equal(a.spawn_masks['player_1'], b.spawn_masks['player_1']))
 
 
 class TestBoard:
