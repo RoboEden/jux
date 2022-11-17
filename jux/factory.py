@@ -3,7 +3,9 @@ from typing import NamedTuple, Tuple
 from jax import Array, lax
 from jax import numpy as jnp
 from luxai2022.factory import Factory as LuxFactory
+from luxai2022.team import Team as LuxTeam
 
+from jux.map.position import Position
 from jux.unit import ResourceType, Unit, UnitCargo
 
 
@@ -70,9 +72,24 @@ class Factory(NamedTuple):
 
     @classmethod
     def from_lux(cls, lux_factory: LuxFactory) -> "Factory":
-        # TODO
-        pass
+        stock = jnp.array([
+            lux_factory.cargo.ice,
+            lux_factory.cargo.ore,
+            lux_factory.cargo.water,
+            lux_factory.cargo.metal,
+        ])
+        return cls(
+            team_id=lux_factory.team_id,
+            unit_id=lux_factory.unit_id,
+            pos=Position(jnp.array(lux_factory.pos)),
+            power=lux_factory.power,
+            cargo=UnitCargo(stock=stock),
+            num_id=lux_factory.num_id,
+        )
 
-    def to_lux(self) -> LuxFactory:
-        # TODO
-        pass
+    def to_lux(self, team: LuxTeam) -> LuxFactory:
+        return LuxFactory(
+            team=team,
+            unit_id=self.unit_id,
+            num_id=self.num_id,
+        )

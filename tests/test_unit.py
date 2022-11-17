@@ -1,11 +1,13 @@
 import chex
+import jax
 from jax import numpy as jnp
 from luxai2022.team import FactionTypes as LuxFactionTypes
 
 from jux.config import EnvConfig
 from jux.team import LuxTeam
+from jux.tree_util import batch_into_leaf
 from jux.unit import LuxUnit, LuxUnitType, Unit, UnitType
-from jux.unit_cargo import ResourceType
+from jux.unit_cargo import ResourceType, UnitCargo
 
 
 class TestUnit(chex.TestCase):
@@ -13,7 +15,7 @@ class TestUnit(chex.TestCase):
     @staticmethod
     def create_unit():
         team_id: int = 0
-        unit_type: UnitType = 1
+        unit_type: UnitType = UnitType.LIGHT
         unit_id: int = 1
         env_cfg: EnvConfig = EnvConfig()
         return Unit.new(team_id=team_id, unit_type=unit_type, unit_id=unit_id, env_cfg=env_cfg)
@@ -24,6 +26,7 @@ class TestUnit(chex.TestCase):
         amount = 10
 
         unit: Unit = self.create_unit()
+
         unit_add_resource = self.variant(Unit.add_resource, static_argnames=())
         unit, transfer_amount = unit_add_resource(
             unit,
@@ -33,6 +36,29 @@ class TestUnit(chex.TestCase):
         chex.assert_type(transfer_amount, int)
         assert transfer_amount == 10
         assert unit.cargo.ice == 10
+
+        unit: Unit = self.create_unit()
+        cargo = UnitCargo(stock=jnp.array([80, 70, 60, 50]))
+        units: Unit = batch_into_leaf([
+            unit._replace(cargo=cargo),
+            unit._replace(cargo=cargo),
+            unit._replace(cargo=cargo),
+            unit._replace(power=60),
+            unit._replace(power=60),
+        ])
+        res_type = jnp.array([1, 2, 3, 4, 4])
+        amount = jnp.array([400, -10, 50, 20, 100])
+        new_units, transfer_amount = self.variant(jax.vmap(unit_add_resource))(units, res_type, amount)
+
+        assert (transfer_amount == jnp.array([30, 0, 50, 20, 90])).all()
+        assert (new_units.cargo.stock == jnp.array([
+            [80, 100, 60, 50],
+            [80, 70, 60, 50],
+            [80, 70, 60, 100],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+        ])).all()
+        assert (new_units.power == jnp.array([50, 50, 50, 80, 150])).all()
 
     @chex.variants(
         with_jit=True,
