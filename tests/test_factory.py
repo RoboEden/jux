@@ -1,8 +1,10 @@
 import chex
 from jax import Array
 from jax import numpy as jnp
+from luxai2022.team import FactionTypes as LuxFactionTypes
+from luxai2022.team import Team as LuxTeam
 
-from jux.factory import Factory
+from jux.factory import Factory, LuxFactory, LuxTeam
 from jux.map.position import Position
 from jux.unit import ResourceType, Unit, UnitCargo
 
@@ -13,7 +15,7 @@ class TestFactory(chex.TestCase):
     def create_factory():
         team_id: int = 0
         unit_id: int = 1
-        pos: Array = Position.new()
+        pos: Array = Position()
         power: int = 10
         cargo: UnitCargo = UnitCargo()
         num_id: int = 10
@@ -53,3 +55,13 @@ class TestFactory(chex.TestCase):
         chex.assert_type(transfer_amount, int)
         assert transfer_amount == 10
         assert factory.cargo.ice == 90
+
+    def test_from_to_lux(self):
+        factory: Factory = self.create_factory()
+        lux_factory: LuxFactory = factory.to_lux({'player_0': LuxTeam(
+            0,
+            'player_0',
+            LuxFactionTypes.MotherMars,
+        )})
+        factory_from_lux: Factory = Factory.from_lux(lux_factory)
+        assert factory == factory_from_lux

@@ -1,6 +1,6 @@
-from typing import NamedTuple, Tuple
+from typing import Dict, NamedTuple, Tuple
 
-from jax import Array, lax
+import jax
 from jax import numpy as jnp
 from luxai2022.factory import Factory as LuxFactory
 from luxai2022.team import Team as LuxTeam
@@ -10,13 +10,13 @@ from jux.unit import ResourceType, Unit, UnitCargo
 
 
 class Factory(NamedTuple):
-    team_id: int
+    team_id: int = 0
     # team # no need team object, team_id is enough
-    unit_id: int
-    pos: Array  # int16[2]
-    power: int
-    cargo: UnitCargo  # int[4]
-    num_id: int
+    unit_id: int = 0
+    pos: Position = Position()  # int16[2]
+    power: int = 0
+    cargo: UnitCargo = UnitCargo()  # int[4]
+    num_id: int = 0
 
     # action_queue # Do we need action queue for factories?
 
@@ -38,7 +38,7 @@ class Factory(NamedTuple):
             new_factory = self._replace(cargo=new_cargo)
             return new_factory, transfer_amount
 
-        new_factory, transfer_amount = lax.cond(
+        new_factory, transfer_amount = jax.lax.cond(
             resource == ResourceType.power,
             add_power,
             add_others,
@@ -62,7 +62,7 @@ class Factory(NamedTuple):
             new_factory = self._replace(cargo=new_cargo)
             return new_factory, transfer_amount
 
-        new_factory, transfer_amount = lax.cond(
+        new_factory, transfer_amount = jax.lax.cond(
             resource == ResourceType.power,
             sub_power,
             sub_others,
@@ -80,16 +80,20 @@ class Factory(NamedTuple):
         ])
         return cls(
             team_id=lux_factory.team_id,
-            unit_id=lux_factory.unit_id,
-            pos=Position(jnp.array(lux_factory.pos)),
+            unit_id=int(lux_factory.unit_id[len('factory_'):]),
+            pos=Position.from_lux(lux_factory.pos),
             power=lux_factory.power,
             cargo=UnitCargo(stock=stock),
             num_id=lux_factory.num_id,
         )
 
-    def to_lux(self, team: LuxTeam) -> LuxFactory:
-        return LuxFactory(
-            team=team,
-            unit_id=self.unit_id,
+    def to_lux(self, teams: Dict[str, LuxTeam]) -> LuxFactory:
+        lux_factory = LuxFactory(
+            team=teams[f"player_{self.team_id}"],
+            unit_id=f"factory_{self.unit_id}",
             num_id=self.num_id,
         )
+        lux_factory.pos = self.pos.to_lux()
+        lux_factory.power = int(self.power)
+        lux_factory.cargo = self.cargo.to_lux()
+        return lux_factory

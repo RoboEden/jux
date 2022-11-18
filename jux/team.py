@@ -89,9 +89,9 @@ class Team(NamedTuple):
 
     def to_lux(self) -> LuxTeam:
         lux_team = LuxTeam(
-            team_id=self.team_id,
-            agent=f'player_{self.team_id}',
-            faction=self.faction.to_lux(),
+            team_id=int(self.team_id),
+            agent=f'player_{int(self.team_id)}',
+            faction=FactionTypes(self.faction).to_lux(),
         )
         lux_team.init_water = self.init_water
         lux_team.init_metal = self.init_metal

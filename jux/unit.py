@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import List, NamedTuple, Tuple, Union
+from typing import Dict, NamedTuple, Tuple, Union
 
 import jax.numpy as jnp
 from jax import Array, lax
@@ -49,14 +49,14 @@ class Unit(NamedTuple):
     power: int
 
     @classmethod
-    def new(cls, team_id: int, unit_type: UnitType, unit_id: int, env_cfg: EnvConfig):
+    def new(cls, team_id: int, unit_type: Union[UnitType, int], unit_id: int, env_cfg: EnvConfig):
         return cls(
-            unit_type=unit_type,
+            unit_type=UnitType(unit_type),
             team_id=team_id,
             unit_id=unit_id,
-            pos=Position.new(),
+            pos=Position(),
             cargo=UnitCargo(),
-            action_queue=jnp.zeros((env_cfg.UNIT_ACTION_QUEUE_SIZE, 5), dtype=jnp.int32),
+            action_queue=ActionQueue.new_empty(env_cfg.UNIT_ACTION_QUEUE_SIZE),
             unit_cfg=env_cfg.ROBOTS[unit_type],
             power=env_cfg.ROBOTS[unit_type].INIT_POWER,
         )
@@ -83,11 +83,11 @@ class Unit(NamedTuple):
             power=lux_unit.power,
         )
 
-    def to_lux(self, lux_teams: List[LuxTeam], lux_env_cfg: LuxEnvConfig) -> LuxUnit:
+    def to_lux(self, lux_teams: Dict[str, LuxTeam], lux_env_cfg: LuxEnvConfig) -> LuxUnit:
         lux_unit = LuxUnit(
-            team=lux_teams[self.team_id],
-            unit_type=self.unit_type.to_lux(),
-            unit_id=f"unit_{self.unit_id}",
+            team=lux_teams[f'player_{int(self.team_id)}'],
+            unit_type=UnitType(self.unit_type).to_lux(),
+            unit_id=f"unit_{int(self.unit_id)}",
             env_cfg=lux_env_cfg,
         )
         lux_unit.pos = self.pos.to_lux()

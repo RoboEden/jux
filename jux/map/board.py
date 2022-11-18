@@ -1,4 +1,4 @@
-from typing import Dict, List, NamedTuple, Type
+from typing import Dict, NamedTuple, Type
 
 import jax.numpy as jnp
 import numpy as np
@@ -7,7 +7,7 @@ from luxai2022.env import Factory as LuxFactory
 from luxai2022.env import Unit as LuxUnit
 from luxai2022.map.board import Board as LuxBoard
 
-from jux.config import EnvConfig, JuxBufferConfig
+from jux.config import JuxBufferConfig, LuxEnvConfig
 from jux.map_generator.generator import GameMap
 
 
@@ -105,7 +105,7 @@ class Board(NamedTuple):
         xs = []
         ys = []
         unit_id = []
-        for k, v in lux_board.factory_map.items():
+        for k, v in lux_board.units_map.items():
             x, y = eval(k)
             if len(v) == 0:
                 continue
@@ -137,11 +137,16 @@ class Board(NamedTuple):
             spawn_masks=spawn_masks,
         )
 
-    def to_lux(self, env_cfg: EnvConfig, factories: List[LuxFactory], units: List[LuxUnit]) -> LuxBoard:
+    def to_lux(
+        self,
+        lux_env_cfg: LuxEnvConfig,
+        lux_factories: Dict[str, LuxFactory],
+        lux_units: Dict[str, LuxUnit],
+    ) -> LuxBoard:
         lux_board = LuxBoard.__new__(LuxBoard)
         height, width = self.height, self.width
 
-        lux_board.env_cfg = env_cfg.to_lux()
+        lux_board.env_cfg = lux_env_cfg
         lux_board.height = int(height)
         lux_board.width = int(width)
         lux_board.seed = self.seed
@@ -153,12 +158,19 @@ class Board(NamedTuple):
         ys, xs = (self.units_map[:self.height, :self.width] != -1).nonzero()
         unit_id = self.units_map[ys, xs]
         ys, xs, unit_id = np.array(ys), np.array(xs), np.array(unit_id)
-        lux_board.units_map = {f'({x}, {y})': units[uid] for y, x, uid in zip(ys, xs, unit_id)}
+        lux_units = {**lux_units['player_0'], **lux_units['player_1']}
+        lux_board.units_map = {}
+        for y, x, uid in zip(ys, xs, unit_id):
+            lux_board.units_map.setdefault(f'({x}, {y})', []).append(lux_units[f"unit_{int(uid)}"])
 
         ys, xs = (self.factory_map[:self.height, :self.width] != -1).nonzero()
         factory_id = self.factory_map[ys, xs]
         ys, xs, factory_id = np.array(ys), np.array(xs), np.array(factory_id)
-        lux_board.factory_map = {f'({x}, {y})': factories[fid] for y, x, fid in zip(ys, xs, factory_id)}
+        lux_factories = {**lux_factories['player_0'], **lux_factories['player_1']}
+        lux_board.factory_map = {
+            f'({x}, {y})': lux_factories[f"factory_{int(fid)}"]
+            for y, x, fid in zip(ys, xs, factory_id)
+        }
 
         lux_board.factory_occupancy_map = np.array(self.factory_occupancy_map[:self.height, :self.width])
         lux_board.spawn_masks = {

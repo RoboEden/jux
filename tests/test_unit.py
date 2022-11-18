@@ -81,8 +81,11 @@ class TestUnit(chex.TestCase):
     def test_to_from_lux(self):
         env_cfg = EnvConfig()
         lux_env_cfg = env_cfg.to_lux()
-        lux_teams = [LuxTeam(0, LuxFactionTypes.AlphaStrike)]
-        lux_unit = LuxUnit(team=lux_teams[0], unit_type=LuxUnitType.HEAVY, unit_id="unit_1", env_cfg=lux_env_cfg)
+        lux_teams = {'player_0': LuxTeam(0, LuxFactionTypes.AlphaStrike)}
+        lux_unit = LuxUnit(team=lux_teams['player_0'],
+                           unit_type=LuxUnitType.HEAVY,
+                           unit_id="unit_1",
+                           env_cfg=lux_env_cfg)
 
         jux_unit = Unit.from_lux(lux_unit, env_cfg)
         assert jux_unit == Unit.from_lux(jux_unit.to_lux(lux_teams, lux_env_cfg), env_cfg)

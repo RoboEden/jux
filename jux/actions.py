@@ -133,13 +133,13 @@ class UnitAction(NamedTuple):
 
 class ActionQueue(NamedTuple):
     data: Array  # int[UNIT_ACTION_QUEUE_SIZE, 5]
-    front: int
-    rear: int
-    count: int
+    front: int = 0
+    rear: int = 0
+    count: int = 0
 
     @staticmethod
     def new_empty(capacity: int) -> "ActionQueue":
-        return ActionQueue(jnp.zeros((capacity, 5), jnp.int32), 0, 0, 0)
+        return ActionQueue(jnp.zeros((capacity, 5), jnp.int32))
 
     @classmethod
     def from_lux(cls, actions: List[LuxAction], max_queue_size: int) -> "ActionQueue":

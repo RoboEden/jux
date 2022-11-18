@@ -1,1 +1,1 @@
-from .state import JuxState
+from .state import State

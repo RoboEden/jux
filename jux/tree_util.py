@@ -1,24 +1,28 @@
 from functools import partial
+from typing import List, Sequence, TypeVar
 
 import jax
 import jax.numpy as jnp
 
+T = TypeVar("T")
 
-def batch_into_leaf(iterable, axis=0):
+
+def batch_into_leaf(seq: Sequence[T], axis=0) -> T:
     """Transpose a batch of pytrees into a pytree of batched leaves.
 
     Args:
-        iterable: a sequence of pytrees with identical structure.
+        seq: a sequence of pytrees with identical structure.
         axis (int, optional): the axis of leaves to be batch dimension, usually 0 or -1. Defaults to 0.
 
     Returns:
-        pytree: a pytree with the same structure as iterable[0], but leaves has one more dimension for batch.
+        pytree: a pytree with the same structure as seq[0], but leaves has one more dimension for batch.
     """
+    assert len(seq) > 0
     stack = partial(jnp.stack, axis=axis)
-    return jax.tree_map(lambda *xs: stack(xs), *iterable)
+    return jax.tree_map(lambda *xs: stack(xs), *seq)
 
 
-def batch_out_of_leaf(tree, axis=0):
+def batch_out_of_leaf(tree: T, axis=0) -> List[T]:
     """Untranspose a pytree of batched leaves into a batch of pytrees.
 
     Args:
@@ -32,18 +36,34 @@ def batch_out_of_leaf(tree, axis=0):
     leaves, structure = jax.tree_util.tree_flatten(tree)
 
     # move batch dimension to the front
-    leaves = [jnp.moveaxis(x, axis, 0) for x in leaves]
+    if axis != 0:
+        leaves = [jnp.moveaxis(x, axis, 0) for x in leaves]
 
     n_batch = leaves[0].shape[0]
 
     # turn leaves into a batch of pytrees
+    leaves = [[x for x in batched_leaf] for batched_leaf in leaves]
     tree = jax.tree_util.tree_unflatten(structure, leaves)
-    # leaves = [[x for x in batched_leaf] for batched_leaf in leaves]
 
     # unbatch pytrees
     transposed = jax.tree_util.tree_transpose(
         outer_treedef=structure,
-        inner_treedef=[0] * n_batch,
+        inner_treedef=jax.tree_util.tree_structure([0] * n_batch),
         pytree_to_transpose=tree,
     )
     return transposed
+
+
+def concat_in_leaf(seq: Sequence[T], axis=0) -> T:
+    """Concatenate a batch of pytrees into a pytree of concatenated leaves.
+
+    Args:
+        seq: a sequence of pytrees with identical structure.
+        axis (int, optional): the axis of leaves to be concatenated (usually batch dimension, such as 0 or -1). Defaults to 0.
+
+    Returns:
+        pytree: a pytree with the same structure as seq[0].
+    """
+    assert len(seq) > 0
+    concat = partial(jnp.concatenate, axis=axis)
+    return jax.tree_map(lambda *xs: concat(xs), *seq)

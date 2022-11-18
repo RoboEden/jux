@@ -3,7 +3,7 @@ from typing import Dict, Tuple
 import jax
 
 from jux.config import EnvConfig, JuxBufferConfig
-from jux.state import JuxState
+from jux.state import State
 
 
 class Jux:
@@ -12,11 +12,11 @@ class Jux:
         # TODO
         pass
 
-    def reset(self, seed: jax.random.PRNGKey) -> Tuple[JuxState, Tuple[Dict, int, bool, Dict]]:
+    def reset(self, seed: jax.random.PRNGKey) -> Tuple[State, Tuple[Dict, int, bool, Dict]]:
         # TODO
         raise NotImplementedError
 
-    def step(self, action) -> Tuple[JuxState, Tuple[Dict, int, bool, Dict]]:
+    def step(self, action) -> Tuple[State, Tuple[Dict, int, bool, Dict]]:
         # TODO
         raise NotImplementedError
 

@@ -8,11 +8,7 @@ from luxai2022.map.position import Position as LuxPosition
 
 
 class Position(NamedTuple):
-    pos: Array  # int32[..., 2]
-
-    @classmethod
-    def new(cls):
-        return cls(jnp.zeros((2, ), dtype=jnp.int32))
+    pos: Array = jnp.zeros((2, ), dtype=jnp.int32)  # int32[..., 2]
 
     @property
     def x(self) -> int:
