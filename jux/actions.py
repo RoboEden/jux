@@ -1,6 +1,7 @@
 from enum import IntEnum
 from typing import List, NamedTuple, Tuple
 
+import jax
 import jax.numpy as jnp
 import luxai2022.actions as lux_actions
 import numpy as np
@@ -14,6 +15,7 @@ from jux.unit_cargo import ResourceType
 
 
 class FactoryAction(IntEnum):
+    DO_NOTHING = -1
     BUILD_LIGHT = 0
     BUILD_HEAVY = 1
     WATER = 2
@@ -23,7 +25,9 @@ class FactoryAction(IntEnum):
         return cls(lux_factory_action.state_dict())
 
     def to_lux(self) -> LuxAction:
-        if self == self.BUILD_LIGHT:
+        if self == self.DO_NOTHING:
+            raise ValueError(f"Cannot convert {self} to LuxAction")
+        elif self == self.BUILD_LIGHT:
             return lux_actions.FactoryBuildAction(unit_type=LuxUnitType.LIGHT)
         elif self == self.BUILD_HEAVY:
             return lux_actions.FactoryBuildAction(unit_type=LuxUnitType.HEAVY)
@@ -43,7 +47,7 @@ class UnitActionType(IntEnum):
 
 
 class UnitAction(NamedTuple):
-    code: Array  # int[5]
+    code: Array = jnp.zeros(5, jnp.int32)  # int[5]
 
     @property
     def action_type(self):
@@ -103,20 +107,23 @@ class UnitAction(NamedTuple):
         return cls(jnp.array([UnitActionType.RECHARGE, 0, 0, amount, repeat], jnp.int32))
 
     def __repr__(self) -> str:
-        if self.action_type == UnitActionType.MOVE:
-            return f"move({Direction(int(self.direction))}, repeat={bool(self.repeat)})"
-        elif self.action_type == UnitActionType.TRANSFER:
-            return f"transfer({Direction(int(self.direction))}, {ResourceType(int(self.resource))}, {int(self.amount)}, repeat={bool(self.repeat)})"
-        elif self.action_type == UnitActionType.PICKUP:
-            return f"pick_up({ResourceType(int(self.resource))}, {int(self.amount)}, repeat={bool(self.repeat)})"
-        elif self.action_type == UnitActionType.DIG:
-            return f"dig(repeat={bool(self.repeat)})"
-        elif self.action_type == UnitActionType.SELF_DESTRUCT:
-            return f"self_destruct(repeat={bool(self.repeat)})"
-        elif self.action_type == UnitActionType.RECHARGE:
-            return f"recharge({int(self.amount)}, repeat={bool(self.repeat)})"
+        if self.code.shape == (5, ):
+            if self.action_type == UnitActionType.MOVE:
+                return f"move({Direction(int(self.direction))}, repeat={bool(self.repeat)})"
+            elif self.action_type == UnitActionType.TRANSFER:
+                return f"transfer({Direction(int(self.direction))}, {ResourceType(int(self.resource))}, {int(self.amount)}, repeat={bool(self.repeat)})"
+            elif self.action_type == UnitActionType.PICKUP:
+                return f"pick_up({ResourceType(int(self.resource))}, {int(self.amount)}, repeat={bool(self.repeat)})"
+            elif self.action_type == UnitActionType.DIG:
+                return f"dig(repeat={bool(self.repeat)})"
+            elif self.action_type == UnitActionType.SELF_DESTRUCT:
+                return f"self_destruct(repeat={bool(self.repeat)})"
+            elif self.action_type == UnitActionType.RECHARGE:
+                return f"recharge({int(self.amount)}, repeat={bool(self.repeat)})"
+            else:
+                raise ValueError(f"Unknown action type: {self.action_type}")
         else:
-            raise ValueError(f"Unknown action type: {self.action_type}")
+            return f"UnitAction({self.code})"
 
     @classmethod
     def from_lux(cls, lux_action: LuxAction) -> "UnitAction":
@@ -130,6 +137,17 @@ class UnitAction(NamedTuple):
     def __eq__(self, __o: object) -> bool:
         return isinstance(__o, UnitAction) and jnp.array_equal(self.code, __o.code)
 
+    def is_valid(self, max_transfer_amount) -> bool:
+        min = jnp.array([0, 0, 0, 0, False])
+        max = jnp.array([
+            len(UnitActionType) - 1,
+            len(Direction) - 1,
+            len(ResourceType) - 1,
+            max_transfer_amount,
+            True,
+        ])
+        return ((self.code >= min) & (self.code < max)).all(-1)
+
 
 class ActionQueue(NamedTuple):
     data: Array  # int[UNIT_ACTION_QUEUE_SIZE, 5]
@@ -138,14 +156,14 @@ class ActionQueue(NamedTuple):
     count: int = 0
 
     @staticmethod
-    def new_empty(capacity: int) -> "ActionQueue":
+    def empty(capacity: int) -> "ActionQueue":
         return ActionQueue(jnp.zeros((capacity, 5), jnp.int32))
 
     @classmethod
     def from_lux(cls, actions: List[LuxAction], max_queue_size: int) -> "ActionQueue":
         n_actions = len(actions)
         assert n_actions <= max_queue_size, f"{n_actions} actions is too much for ActionQueue size {max_queue_size}"
-        data = jnp.array([UnitAction.from_lux(act).code for act in actions]).reshape(-1, 5)
+        data = jnp.array([UnitAction.from_lux(act).code for act in actions], jnp.int32).reshape(-1, 5)
         pad_size = max_queue_size - len(data)
         padding = jnp.zeros((pad_size, 5), np.int32)
         data = jnp.concatenate([data, padding], axis=-2)
@@ -176,23 +194,39 @@ class ActionQueue(NamedTuple):
         Returns:
             ActionQueue: Updated queue.
         """
+
         # if self.is_full():
         #     raise ValueError("ActionQueue is full")
 
         # There is no way to thrown an error in jitted function.
         # It is user's responsibility to check if the queue is full.
         # TODO: design an error code?
+        def _push(action: UnitAction):
+            data = self.data.at[..., self.rear, :].set(action.code)
+            rear = (self.rear + 1) % self.capacity
+            count = self.count + 1
+            return ActionQueue(data, self.front, rear, count)
 
-        data = self.data.at[..., self.rear, :].set(action.code)
-        rear = (self.rear + 1) % self.capacity
-        count = self.count + 1
-        return ActionQueue(data, self.front, rear, count)
+        return jax.lax.cond(
+            self.is_full(),
+            lambda _: self,
+            _push,
+            action,
+        )
 
     def pop(self) -> Tuple[UnitAction, "ActionQueue"]:
         action = self.peek()
-        front = (self.front + 1) % self.capacity
-        count = self.count - 1
-        return action, ActionQueue(self.data, front, self.rear, count)
+        return action, jax.lax.cond(
+            self.is_empty(),
+            lambda self: self,
+            lambda self: ActionQueue(
+                data=self.data,
+                front=(self.front + 1) % self.capacity,
+                rear=self.rear,
+                count=self.count - 1,
+            ),
+            self,
+        )
 
     def peek(self) -> UnitAction:
         '''Return the front of the queue. There is no way to thrown an error in jitted function. It is user's responsibility to check if the queue is empty.

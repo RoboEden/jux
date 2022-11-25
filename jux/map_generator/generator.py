@@ -38,7 +38,7 @@ class GameMap(NamedTuple):
         buf_size = (buf_cfg.MAX_MAP_SIZE, buf_cfg.MAX_MAP_SIZE)
         height, width = lux_map.height, lux_map.width
 
-        rubble = jnp.empty(buf_size, dtype=jnp.float32).at[:height, :width].set(lux_map.rubble)
+        rubble = jnp.empty(buf_size, dtype=jnp.int32).at[:height, :width].set(lux_map.rubble.astype(np.int32))
         ice = jnp.empty(buf_size, dtype=jnp.bool_).at[:height, :width].set(lux_map.ice != 0)
         ore = jnp.empty(buf_size, dtype=jnp.bool_).at[:height, :width].set(lux_map.ore != 0)
 

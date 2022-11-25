@@ -1,6 +1,7 @@
 from enum import IntEnum
 from typing import Dict, NamedTuple, Tuple, Union
 
+import jax
 import jax.numpy as jnp
 from jax import Array, lax
 from luxai2022.config import EnvConfig as LuxEnvConfig
@@ -8,10 +9,12 @@ from luxai2022.team import Team as LuxTeam
 from luxai2022.unit import Unit as LuxUnit
 from luxai2022.unit import UnitType as LuxUnitType
 
-from jux.actions import ActionQueue
+from jux.actions import ActionQueue, UnitAction
 from jux.config import EnvConfig, UnitConfig
 from jux.map.position import Position
 from jux.unit_cargo import ResourceType, UnitCargo
+
+INT32_MAX = jnp.iinfo(jnp.int32).max
 
 
 class UnitType(IntEnum):
@@ -37,16 +40,16 @@ class UnitType(IntEnum):
 
 
 class Unit(NamedTuple):
-    unit_type: UnitType
-    team_id: int
-    # team # no need team object, team_id is enough
-    unit_id: int
-    pos: Position
-
-    cargo: UnitCargo
-    action_queue: ActionQueue  # int[UNIT_ACTION_QUEUE_SIZE, 5]
     unit_cfg: UnitConfig
-    power: int
+    unit_type: UnitType
+    action_queue: ActionQueue  # int[UNIT_ACTION_QUEUE_SIZE, 5]
+    team_id: int = INT32_MAX
+    # team # no need team object, team_id is enough
+    unit_id: int = INT32_MAX
+    pos: Position = Position()
+
+    cargo: UnitCargo = UnitCargo()
+    power: int = 0
 
     @classmethod
     def new(cls, team_id: int, unit_type: Union[UnitType, int], unit_id: int, env_cfg: EnvConfig):
@@ -56,9 +59,17 @@ class Unit(NamedTuple):
             unit_id=unit_id,
             pos=Position(),
             cargo=UnitCargo(),
-            action_queue=ActionQueue.new_empty(env_cfg.UNIT_ACTION_QUEUE_SIZE),
+            action_queue=ActionQueue.empty(env_cfg.UNIT_ACTION_QUEUE_SIZE),
             unit_cfg=env_cfg.ROBOTS[unit_type],
             power=env_cfg.ROBOTS[unit_type].INIT_POWER,
+        )
+
+    @classmethod
+    def empty(cls, env_cfg: EnvConfig, action_queue_size: int):
+        return cls(
+            unit_type=UnitType.LIGHT,
+            unit_cfg=env_cfg.ROBOTS[UnitType.LIGHT],
+            action_queue=ActionQueue.empty(action_queue_size),
         )
 
     @property
@@ -98,6 +109,15 @@ class Unit(NamedTuple):
 
     # def __eq__(self, __o: object) -> bool:
     #     return isinstance(__o, Unit) and self.unit_id == __o.unit_id and self.team_id == __o.team_id and self.unit_type == __o.unit_type
+
+    def next_action(self) -> Tuple['Unit', UnitAction]:
+        act, new_action_queue = self.action_queue.pop()
+        act = jax.lax.cond(
+            self.action_queue.is_empty(),
+            lambda: UnitAction(jnp.zeros(5, dtype=jnp.int32)),
+            lambda: act,
+        )
+        return self._replace(action_queue=new_action_queue), act
 
     def is_heavy(self) -> Union[bool, Array]:
         return self.unit_type == UnitType.HEAVY

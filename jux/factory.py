@@ -8,17 +8,22 @@ from luxai2022.team import Team as LuxTeam
 from jux.map.position import Position
 from jux.unit import ResourceType, Unit, UnitCargo
 
+INT32_MAX = jnp.iinfo(jnp.int32).max
+
 
 class Factory(NamedTuple):
-    team_id: int = 0
+    team_id: int = INT32_MAX
     # team # no need team object, team_id is enough
-    unit_id: int = 0
+    unit_id: int = INT32_MAX
     pos: Position = Position()  # int16[2]
     power: int = 0
     cargo: UnitCargo = UnitCargo()  # int[4]
-    num_id: int = 0
+    num_id: int = INT32_MAX
 
     # action_queue # Do we need action queue for factories?
+    @classmethod
+    def empty(cls):
+        return cls()
 
     def add_resource(self, resource: ResourceType, transfer_amount: int) -> Tuple['Factory', int]:
         # If resource != ResourceType.power, call UnitCargo.add_resource.

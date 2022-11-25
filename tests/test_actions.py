@@ -47,7 +47,7 @@ class TestActionQueue(chex.TestCase):
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
     def test_push_pop(self):
         env_cfg = EnvConfig()
-        queue = ActionQueue.new_empty(env_cfg.UNIT_ACTION_QUEUE_SIZE)
+        queue = ActionQueue.empty(env_cfg.UNIT_ACTION_QUEUE_SIZE)
         assert queue.is_empty()
         assert not queue.is_full()
         assert queue.count == 0

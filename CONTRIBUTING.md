@@ -6,7 +6,7 @@ We are going to support `python>=3.7,<3.11`.
 Upgrade pip and install requirements JUX in editable mode with optional-dependencies for `dev`.
 ```console
 $ pip install --upgrade pip
-$ pip install -e .[dev]
+$ pip install -e .[dev] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 ## Setup pre-commit hooks

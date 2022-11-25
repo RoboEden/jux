@@ -6,9 +6,11 @@ import numpy as np
 from jax import Array
 from luxai2022.map.position import Position as LuxPosition
 
+INT32_MAX = jnp.iinfo(jnp.int32).max
+
 
 class Position(NamedTuple):
-    pos: Array = jnp.zeros((2, ), dtype=jnp.int32)  # int32[..., 2]
+    pos: Array = jnp.full((2, ), fill_value=INT32_MAX, dtype=jnp.int32)  # int32[..., 2]
 
     @property
     def x(self) -> int:
