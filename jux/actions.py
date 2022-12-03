@@ -215,15 +215,19 @@ class ActionQueue(NamedTuple):
         )
 
     def pop(self) -> Tuple[UnitAction, "ActionQueue"]:
-        action = self.peek()
-        return action, jax.lax.cond(
+        return jax.lax.cond(
             self.is_empty(),
-            lambda self: self,
-            lambda self: ActionQueue(
-                data=self.data,
-                front=(self.front + 1) % self.capacity,
-                rear=self.rear,
-                count=self.count - 1,
+            # if empty, return empty action and self.
+            lambda self: (UnitAction(), self),
+            # else, return the front action and updated queue.
+            lambda self: (
+                self.peek(),
+                ActionQueue(
+                    data=self.data,
+                    front=(self.front + 1) % self.capacity,
+                    rear=self.rear,
+                    count=self.count - 1,
+                ),
             ),
             self,
         )

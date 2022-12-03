@@ -19,23 +19,23 @@ class UnitCargo(NamedTuple):
 
     @property
     def ice(self):
-        return self.stock[ResourceType.ice]
+        return self.stock[..., ResourceType.ice]
 
     @property
     def ore(self):
-        return self.stock[ResourceType.ore]
+        return self.stock[..., ResourceType.ore]
 
     @property
     def water(self):
-        return self.stock[ResourceType.water]
+        return self.stock[..., ResourceType.water]
 
     @property
     def metal(self):
-        return self.stock[ResourceType.metal]
+        return self.stock[..., ResourceType.metal]
 
     @classmethod
     def from_lux(cls, lux_cargo: LuxUnitCargo) -> "UnitCargo":
-        return UnitCargo(jnp.array([lux_cargo.ice, lux_cargo.ore, lux_cargo.water, lux_cargo.metal]))
+        return UnitCargo(jnp.array([lux_cargo.ice, lux_cargo.ore, lux_cargo.water, lux_cargo.metal], dtype=jnp.int32))
 
     def to_lux(self) -> LuxUnitCargo:
         return LuxUnitCargo(int(self.ice), int(self.ore), int(self.water), int(self.metal))

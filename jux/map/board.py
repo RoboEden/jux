@@ -218,3 +218,9 @@ class Board(NamedTuple):
                 and jnp.array_equal(self.factory_map, __o.factory_map)
                 and jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map)
                 and jnp.array_equal(self.spawn_masks, __o.spawn_masks))
+
+    def update_units_map(self, units: 'Unit') -> 'Board':
+        units_map = jnp.full_like(self.units_map, fill_value=INT32_MAX)
+        pos = units.pos
+        units_map = units_map.at[pos.y, pos.x].set(units.unit_id, mode='drop')
+        return self._replace(units_map=units_map)

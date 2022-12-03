@@ -9,6 +9,7 @@ from jax.experimental import checkify
 from luxai2022.state import State as LuxState
 
 import jux
+import jux.map.weather
 from jux.actions import ActionQueue, FactoryAction, UnitAction, UnitActionType
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.factory import Factory, LuxFactory
@@ -26,6 +27,10 @@ class JuxAction(NamedTuple):
     unit_action_queue: UnitAction  # UnitAction[2, MAX_N_UNITS, UNIT_ACTION_QUEUE_SIZE]
     unit_action_queue_count: Array  # int[2, MAX_N_UNITS]
     unit_action_queue_update: Array  # bool[2, MAX_N_UNITS]
+
+
+def is_day(env_cfg: EnvConfig, env_step):
+    return env_step % env_cfg.CYCLE_LENGTH < env_cfg.DAY_LENGTH
 
 
 class State(NamedTuple):
@@ -86,7 +91,7 @@ class State(NamedTuple):
             len(lux_state.units['player_0']),
             len(lux_state.units['player_1']),
         ]
-        empty_unit = Unit.empty(env_cfg, env_cfg.UNIT_ACTION_QUEUE_SIZE)
+        empty_unit = Unit.empty(env_cfg)
         empty_unit = jax.tree_util.tree_map(lambda x: jnp.array(x)[None, ...], empty_unit)
         padding_units = (  # padding to length of buf_cfg.max_units
             jax.tree_util.tree_map(lambda x: x.repeat(buf_cfg.MAX_N_UNITS - n_units[0], axis=0), empty_unit),
@@ -281,7 +286,7 @@ class State(NamedTuple):
             units_b_0 = jux.tree_util.batch_out_of_leaf(units_b_0)
             units_a_0.sort(key=lambda x: x.unit_id)
             units_b_0.sort(key=lambda x: x.unit_id)
-            if not units_a_0 == units_b_0:
+            if not (units_a_0 == units_b_0):
                 return False
 
             units_a_1 = jax.tree_util.tree_map(lambda x: x[1, :n_units_a[1]], units_a)
@@ -290,7 +295,7 @@ class State(NamedTuple):
             units_b_1 = jux.tree_util.batch_out_of_leaf(units_b_1)
             units_a_1.sort(key=lambda x: x.unit_id)
             units_b_1.sort(key=lambda x: x.unit_id)
-            if not units_a_1 == units_b_1:
+            if not (units_a_1 == units_b_1):
                 return False
             return True
 
@@ -439,22 +444,7 @@ class State(NamedTuple):
 
         # handle weather effects
         current_weather = self.weather_schedule[real_env_steps]
-        weather_cfg = jax.lax.switch(
-            current_weather,
-            [
-                # NONE
-                lambda cfg: dict(power_gain_factor=1.0, power_loss_factor=1),
-                # MARS_QUAKE
-                lambda cfg: dict(power_gain_factor=1.0, power_loss_factor=1),
-                # COLD_SNAP
-                lambda cfg: dict(power_gain_factor=1.0, power_loss_factor=cfg.COLD_SNAP.POWER_CONSUMPTION),
-                # DUST_STORM
-                lambda cfg: dict(power_gain_factor=cfg.DUST_STORM.POWER_GAIN.astype(float), power_loss_factor=1),
-                # SOLAR_FLARE
-                lambda cfg: dict(power_gain_factor=cfg.SOLAR_FLARE.POWER_GAIN.astype(float), power_loss_factor=1),
-            ],
-            self.env_cfg.WEATHER,
-        )
+        weather_cfg = jux.map.weather.get_weather_cfg(self.env_cfg.WEATHER, current_weather)
         self: 'State' = jax.lax.cond(
             current_weather == Weather.MARS_QUAKE,
             lambda s: s._mars_quake(),
@@ -476,14 +466,18 @@ class State(NamedTuple):
 
         # check units
         action_mask = jnp.arange(self.UNIT_ACTION_QUEUE_SIZE)
-        action_mask = jnp.repeat(action_mask[None, :], 2 * self.MAX_N_UNITS, axis=-2).reshape((2, self.MAX_N_UNITS, -1))
+        action_mask = jnp.repeat(
+            action_mask[None, :],
+            2 * self.MAX_N_UNITS,
+            axis=-2,
+        ).reshape((2, self.MAX_N_UNITS, -1))  # bool[2, U, Q]
         chex.assert_shape(action_mask, (2, self.MAX_N_UNITS, self.UNIT_ACTION_QUEUE_SIZE))
-        action_mask = action_mask < actions.unit_action_queue_count[..., None]
+        action_mask = action_mask < actions.unit_action_queue_count[..., None]  # bool[2, U, Q]
         chex.assert_shape(action_mask, (2, self.MAX_N_UNITS, self.UNIT_ACTION_QUEUE_SIZE))
 
         failed_players = failed_players | (actions.unit_action_queue_update & ~unit_mask).any(-1)
 
-        failed_action = ~actions.unit_action_queue.is_valid(self.env_cfg.max_transfer_amount)
+        failed_action = ~actions.unit_action_queue.is_valid(self.env_cfg.max_transfer_amount)  # bool[2, U, Q]
         failed_action = failed_action & action_mask
         failed_action = failed_action.any(-1).any(-1)
         chex.assert_shape(failed_action, (2, ))
@@ -510,11 +504,20 @@ class State(NamedTuple):
         self = new_self
 
         # 3. validate all actions against current state, throw away impossible actions TODO
+        # pop next actions
         new_units, unit_action = jax.vmap(jax.vmap(Unit.next_action))(self.units)
-        new_units = jux.tree_util.tree_where(unit_mask & ~failed_players[..., None], new_units, self.units)
+        # new_units = jux.tree_util.tree_where(unit_mask & ~failed_players[..., None], new_units, self.units)
+        pop_success = unit_mask & ~failed_players[..., None]
+        new_units = new_units._replace(action_queue=new_units.action_queue._replace(
+            front=jnp.where(pop_success, new_units.action_queue.front, self.units.action_queue.front),
+            rear=jnp.where(pop_success, new_units.action_queue.rear, self.units.action_queue.rear),
+            count=jnp.where(pop_success, new_units.action_queue.count, self.units.action_queue.count),
+        ))
+        self = self._replace(units=new_units)
         unit_action = jux.tree_util.tree_where(unit_mask & ~failed_players[..., None], unit_action, UnitAction())
 
-        factory_actions = jnp.where(factory_mask, actions.factory_action, FactoryAction.DO_NOTHING)
+        factory_actions = jnp.where(factory_mask & ~failed_players[..., None], actions.factory_action,
+                                    FactoryAction.DO_NOTHING)
 
         self = self._handle_transfer_actions(unit_action)
         self = self._handle_pickup_actions(unit_action)
@@ -524,6 +527,44 @@ class State(NamedTuple):
         self = self._handle_movement_actions(unit_action, weather_cfg)
         self = self._handle_recharge_actions(unit_action)
         self = self._handle_factory_water_actions(factory_actions)
+
+        # TODO: update lichen
+
+        # resources refining
+        factory = self.factories.refine_step(self.env_cfg)
+        water_cost = self.env_cfg.FACTORY_WATER_CONSUMPTION * self.factory_mask
+        stock = factory.cargo.stock.at[..., ResourceType.water].add(-water_cost)
+        factory = factory._replace(cargo=factory.cargo._replace(stock=stock))
+        factories_to_destroy = (factory.cargo.water < 0)  # noqa
+        # TODO: destroy factories
+        self = self._replace(factories=factory)
+
+        # power gain
+        def _gain_power(self: 'State') -> Unit:
+            new_units = self.units.gain_power(weather_cfg["power_gain_factor"])
+            new_units = new_units._replace(power=new_units.power * self.unit_mask)
+            return new_units
+
+        self = self._replace(units=jax.lax.cond(
+            is_day(self.env_cfg, real_env_steps),
+            _gain_power,
+            lambda self: self.units,
+            self,
+        ))
+        '''
+        # this if statement is same as above jax.lax.cond
+        if is_day(self.env_cfg, real_env_steps):
+            new_units = self.units.gain_power(weather_cfg["power_gain_factor"])
+            new_units = new_units._replace(power=new_units.power * self.unit_mask)
+            self = self._replace(units=new_units)
+        '''
+        # Factories are immune to weather thanks to using nuclear reactors instead
+        new_factory_power = self.factories.power + self.env_cfg.FACTORY_CHARGE * self.factory_mask
+        self = self._replace(factories=self.factories._replace(power=new_factory_power))
+
+        # update step number
+        self = self._replace(env_steps=self.env_steps + 1)
+
         return self
 
     def _handle_transfer_actions(self, actions: UnitAction):
@@ -559,7 +600,7 @@ class State(NamedTuple):
         units = units._replace(power=new_power)
 
         # rubble
-        dig_rubble = is_dig & self.board.rubble[y, x] > 0
+        dig_rubble = is_dig & (self.board.rubble[y, x] > 0)
         new_rubble = self.board.rubble.at[y, x].add(-units.unit_cfg.DIG_RUBBLE_REMOVED * dig_rubble)
         new_rubble = jnp.maximum(new_rubble, 0)
 
@@ -590,9 +631,67 @@ class State(NamedTuple):
         # TODO
         return self
 
-    def _handle_factory_build_actions(self, factory_actions: Array, weather_cfg: Dict[str, np.ndarray]):
-        # TODO
-        return self
+    def _handle_factory_build_actions(self: 'State', factory_actions: Array, weather_cfg: Dict[str, np.ndarray]):
+        factory_mask = self.factory_mask
+        player_id = jnp.array([0, 1])[..., None]
+        is_build_heavy = (factory_actions == FactoryAction.BUILD_HEAVY) & factory_mask
+        is_build_light = (factory_actions == FactoryAction.BUILD_LIGHT) & factory_mask
+
+        # 1. check if build action is valid
+        # check if power is enough
+        light_power_cost = self.env_cfg.ROBOTS[UnitType.LIGHT].POWER_COST * weather_cfg["power_loss_factor"]
+        heavy_power_cost = self.env_cfg.ROBOTS[UnitType.HEAVY].POWER_COST * weather_cfg["power_loss_factor"]
+        is_build_light = is_build_light & (self.factories.power >= light_power_cost)
+        is_build_heavy = is_build_heavy & (self.factories.power >= heavy_power_cost)
+
+        # check if metal is enough
+        light_metal_cost = self.env_cfg.ROBOTS[UnitType.LIGHT].METAL_COST
+        heavy_metal_cost = self.env_cfg.ROBOTS[UnitType.HEAVY].METAL_COST
+        is_build_light = is_build_light & (self.factories.power >= light_metal_cost)
+        is_build_heavy = is_build_heavy & (self.factories.power >= heavy_metal_cost)
+
+        is_build = is_build_heavy | is_build_light
+
+        # 2. deduct power and metal
+        power_cost = is_build_light * light_power_cost + is_build_heavy * heavy_power_cost
+        metal_cost = is_build_light * light_metal_cost + is_build_heavy * heavy_metal_cost
+        factory_sub_resource = jax.vmap(jax.vmap(Factory.sub_resource, in_axes=(0, None, 0)), in_axes=(0, None, 0))
+        factories = self.factories
+        factories, _ = factory_sub_resource(factories, ResourceType.power, power_cost)
+        factories, _ = factory_sub_resource(factories, ResourceType.metal, metal_cost)
+        self = self._replace(factories=factories)
+
+        # 3. create new units
+        unit_new_vmap = jax.vmap(jax.vmap(Unit.new, in_axes=(None, 0, 0, None)), in_axes=(0, 0, 0, None))
+        n_new_units = is_build.sum(axis=1)
+        start_id = jnp.array([self.global_id, self.global_id + n_new_units[0]])[..., None]
+        unit_id = jnp.cumsum(is_build, axis=1) - 1 + start_id
+
+        created_units = unit_new_vmap(
+            jnp.array([0, 1]),  # team_id
+            is_build_heavy.astype(jnp.int32),  # unit_type
+            unit_id,  # unit_id
+            # replace UNIT_ACTION_QUEUE_SIZE with a concrete value to make it JIT-able
+            self.env_cfg._replace(UNIT_ACTION_QUEUE_SIZE=self.UNIT_ACTION_QUEUE_SIZE),  # env_cfg
+        )
+        created_units = created_units._replace(pos=self.factories.pos)
+
+        # put created units into self.units
+        created_units_idx = jnp.cumsum(is_build, axis=1) - 1 + self.n_units[..., None]
+        created_units_idx = jnp.where(is_build, created_units_idx, INT32_MAX)
+
+        def set_unit_attr(units_attr, created_attr):
+            return units_attr.at[player_id, created_units_idx, ...].set(created_attr, mode='drop')
+
+        new_units = jax.tree_map(set_unit_attr, self.units, created_units)
+        new_n_units = self.n_units + n_new_units
+
+        return self._replace(
+            units=new_units,
+            n_units=new_n_units,
+            unit_id2idx=State.generate_unit_id2idx(new_units, self.MAX_N_UNITS),
+            board=self.board.update_units_map(new_units),
+        )
 
     def _handle_movement_actions(self, actions: UnitAction, weather_cfg: Dict[str, np.ndarray]):
         unit_mask = self.unit_mask
@@ -684,8 +783,10 @@ class State(NamedTuple):
 
         empty_unit = jax.tree_map(
             lambda x: jnp.array(x)[None, None],
-            Unit.empty(self.env_cfg, self.UNIT_ACTION_QUEUE_SIZE),
+            # replace UNIT_ACTION_QUEUE_SIZE with a concrete value to make it JIT-able
+            Unit.empty(self.env_cfg._replace(UNIT_ACTION_QUEUE_SIZE=self.UNIT_ACTION_QUEUE_SIZE)),
         )
+
         units = jux.tree_util.tree_where(dead, empty_unit, units)
         units = jax.tree_map(lambda x: x[player_id, arg], units)
 
@@ -694,13 +795,11 @@ class State(NamedTuple):
         unit_id2idx = State.generate_unit_id2idx(units, self.MAX_N_UNITS)
 
         # update board
-        units_map = jnp.full_like(self.board.units_map, fill_value=INT32_MAX)
-        units_map = units_map.at[new_pos[..., 0], new_pos[..., 1]].set(units.unit_id, mode='drop')
         self = self._replace(
             units=units,
             n_units=n_units,
             unit_id2idx=unit_id2idx,
-            board=self.board._replace(units_map=units_map),
+            board=self.board.update_units_map(units),
         )
         return self
 

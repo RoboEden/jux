@@ -53,23 +53,27 @@ class Unit(NamedTuple):
 
     @classmethod
     def new(cls, team_id: int, unit_type: Union[UnitType, int], unit_id: int, env_cfg: EnvConfig):
+        unit_cfg = jax.lax.switch(unit_type, [
+            lambda: env_cfg.ROBOTS[UnitType.LIGHT],
+            lambda: env_cfg.ROBOTS[UnitType.HEAVY],
+        ])
         return cls(
-            unit_type=UnitType(unit_type),
+            unit_type=UnitType(unit_type) if isinstance(unit_type, int) else unit_type,
             team_id=team_id,
             unit_id=unit_id,
             pos=Position(),
             cargo=UnitCargo(),
             action_queue=ActionQueue.empty(env_cfg.UNIT_ACTION_QUEUE_SIZE),
-            unit_cfg=env_cfg.ROBOTS[unit_type],
-            power=env_cfg.ROBOTS[unit_type].INIT_POWER,
+            unit_cfg=unit_cfg,
+            power=unit_cfg.INIT_POWER,
         )
 
     @classmethod
-    def empty(cls, env_cfg: EnvConfig, action_queue_size: int):
+    def empty(cls, env_cfg: EnvConfig):
         return cls(
             unit_type=UnitType.LIGHT,
             unit_cfg=env_cfg.ROBOTS[UnitType.LIGHT],
-            action_queue=ActionQueue.empty(action_queue_size),
+            action_queue=ActionQueue.empty(env_cfg.UNIT_ACTION_QUEUE_SIZE),
         )
 
     @property
@@ -175,3 +179,8 @@ class Unit(NamedTuple):
             *(self, resource, amount),
         )
         return new_unit, transfer_amount
+
+    def gain_power(self, power_gain_factor):
+        new_power = self.power + jnp.ceil(self.unit_cfg.CHARGE * power_gain_factor).astype(jnp.int32)
+        new_power = jnp.minimum(new_power, self.battery_capacity)
+        return self._replace(power=new_power)

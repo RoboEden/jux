@@ -5,6 +5,7 @@ from jax import numpy as jnp
 from luxai2022.factory import Factory as LuxFactory
 from luxai2022.team import Team as LuxTeam
 
+from jux.config import EnvConfig
 from jux.map.position import Position
 from jux.unit import ResourceType, Unit, UnitCargo
 
@@ -77,18 +78,12 @@ class Factory(NamedTuple):
 
     @classmethod
     def from_lux(cls, lux_factory: LuxFactory) -> "Factory":
-        stock = jnp.array([
-            lux_factory.cargo.ice,
-            lux_factory.cargo.ore,
-            lux_factory.cargo.water,
-            lux_factory.cargo.metal,
-        ])
         return cls(
             team_id=lux_factory.team_id,
             unit_id=int(lux_factory.unit_id[len('factory_'):]),
             pos=Position.from_lux(lux_factory.pos),
             power=lux_factory.power,
-            cargo=UnitCargo(stock=stock),
+            cargo=UnitCargo.from_lux(lux_factory.cargo),
             num_id=lux_factory.num_id,
         )
 
@@ -102,3 +97,7 @@ class Factory(NamedTuple):
         lux_factory.power = int(self.power)
         lux_factory.cargo = self.cargo.to_lux()
         return lux_factory
+
+    def refine_step(self, env_cfg: EnvConfig) -> "Factory":
+        # TODO
+        return self

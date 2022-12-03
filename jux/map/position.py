@@ -48,8 +48,8 @@ class Direction(IntEnum):
 
 direct2delta_xy = jnp.array([
     [0, 0],  # stay
-    [-1, 0],  # up
-    [0, 1],  # right
-    [1, 0],  # down
-    [0, -1],  # left
+    [0, -1],  # up
+    [1, 0],  # right
+    [0, 1],  # down
+    [-1, 0],  # left
 ])
