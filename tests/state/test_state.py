@@ -20,7 +20,7 @@ def get_actions_from_replay(replay: dict) -> Iterable[Dict[str, Dict]]:
         }
 
 
-def load_replay(replay: str = 'tests/replay.json.gz') -> LuxState:
+def load_replay(replay: str = 'tests/replay.json.gz'):
     if osp.splitext(replay)[-1] == '.gz':
         with gzip.open(replay) as f:
             replay = json.load(f)
@@ -54,7 +54,7 @@ class TestState(chex.TestCase):
         state_step_late_game = self.variant(State._step_late_game)
 
         # prepare an environment
-        buf_cfg = JuxBufferConfig(MAX_N_UNITS=40)
+        buf_cfg = JuxBufferConfig(MAX_N_UNITS=20)
         env, actions = load_replay()
         for i in range(10):
             act = next(actions)
@@ -80,8 +80,14 @@ class TestState(chex.TestCase):
             jux_state, lux_state = step_both(jux_state, env, act)
             assert jux_state == State.from_lux(lux_state, buf_cfg)
 
+        # next several steps
+        # it contains a new action 'pickup'
+        for i, act in zip(range(3), actions):
+            jux_state, lux_state = step_both(jux_state, env, act)
+            assert jux_state == State.from_lux(lux_state, buf_cfg)
+
         # # another step
-        # # it contains a new action 'pickup'
+        # # it contains a new action 'transfer'
         # act = next(actions)
         # jux_state, lux_state = step_both(jux_state, env, act)
         # assert jux_state == State.from_lux(lux_state, buf_cfg)

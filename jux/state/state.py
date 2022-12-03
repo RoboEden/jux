@@ -16,7 +16,7 @@ from jux.factory import Factory, LuxFactory
 from jux.map import Board, Weather
 from jux.map.position import Direction, Position, direct2delta_xy
 from jux.team import LuxTeam, Team
-from jux.unit import LuxUnit, Unit, UnitType
+from jux.unit import LuxUnit, Unit, UnitCargo, UnitType
 from jux.unit_cargo import ResourceType
 
 INT32_MAX = jnp.iinfo(jnp.int32).max
@@ -44,7 +44,7 @@ class State(NamedTuple):
     weather_schedule: Array
 
     units: Unit  # Unit[2, MAX_N_UNITS], the unit_id and team_id of non-existent units are jnp.iinfo(jnp.int32).max
-    unit_id2idx: Array  # [MAX_N_UNITS, 2], the idx of non-existent units is jnp.iinfo(jnp.int32).max
+    unit_id2idx: Array  # [2 * MAX_N_UNITS, 2], the idx of non-existent units is jnp.iinfo(jnp.int32).max
     n_units: Array  # int[2]
     '''
     The `unit_id2idx` is organized such that
@@ -67,7 +67,7 @@ class State(NamedTuple):
     '''
 
     factories: Factory  # Factory[2, MAX_N_FACTORIES]
-    factory_id2idx: Array  # int[MAX_N_FACTORIES, 2]
+    factory_id2idx: Array  # int[2 * MAX_N_FACTORIES, 2]
     n_factories: Array  # int[2]
 
     teams: Team  # Team[2]
@@ -159,7 +159,7 @@ class State(NamedTuple):
             units[team_id, unit_idx].unit_id == unit_id
         '''
         units.unit_id: Array
-        unit_id2idx = jnp.ones((max_n_units, 2), dtype=np.int32) * jnp.iinfo(np.int32).max
+        unit_id2idx = jnp.ones((max_n_units * 2, 2), dtype=np.int32) * jnp.iinfo(np.int32).max
         unit_id2idx = unit_id2idx.at[units.unit_id[..., 0, :]].set(
             jnp.array([
                 0 * jnp.ones(max_n_units, dtype=np.int32),
@@ -179,7 +179,7 @@ class State(NamedTuple):
     @staticmethod
     def generate_factory_id2idx(factories: Factory, max_n_factories: int) -> Array:
         factories.unit_id: Array
-        factory_id2idx = jnp.ones((max_n_factories, 2), dtype=np.int32) * jnp.iinfo(np.int32).max
+        factory_id2idx = jnp.ones((max_n_factories * 2, 2), dtype=np.int32) * jnp.iinfo(np.int32).max
         factory_id2idx = factory_id2idx.at[factories.unit_id[..., 0, :]].set(
             jnp.array([
                 0 * jnp.ones(max_n_factories, dtype=np.int32),
@@ -580,7 +580,84 @@ class State(NamedTuple):
         return self
 
     def _handle_pickup_actions(self, actions: UnitAction):
-        # TODO
+        # This action is difficult to vectorize, because pickup actions are not
+        # independent from each other. Two robots may pick up from the same
+        # factory. Assume there two robots, both pickup 10 power from the same
+        # factory. If the factory has 15 power, then the first one gets 10
+        # power, and the second one gets only 5 power.
+        #
+        # The following implementation relies on the fact that
+        #  1. there are at most 9 robots on one factory.
+        #  2. opponent's robots cannot move into our factory.
+
+        # 1. prepare some data
+        # get the pos of 9 cells around the factory
+        occupy_delta = jnp.array([[0, -1], [0, 0], [0, 1],])[None] + \
+            jnp.array([[-1, 0], [0, 0], [1, 0]])[:, None]  # int[3, 3, 2]
+        occupy_delta = occupy_delta.reshape((-1, 2))  # int[9, 2]
+        occupy_pos = Position(self.factories.pos.pos[..., None, :] + occupy_delta)  # int[2, F, 9, 2]
+        chex.assert_shape(occupy_pos, (2, self.MAX_N_FACTORIES, 9, 2))
+
+        # get the unit idx on factories
+        unit_id_on_factory = self.board.units_map[occupy_pos.y, occupy_pos.x]
+        unit_id_on_factory = jnp.sort(unit_id_on_factory, axis=-1)  # sort by id, so small ids have higher priority
+        unit_idx_on_factory = self.unit_id2idx[unit_id_on_factory]  # int[2, F, 9, 2]
+        unit_team_idx, unit_idx = unit_idx_on_factory[..., 0], unit_idx_on_factory[..., 1]  # int[2, F, 9]
+        chex.assert_shape(unit_idx_on_factory, (2, self.MAX_N_FACTORIES, 9, 2))
+
+        # get action info
+        action_type = actions.action_type.at[unit_team_idx, unit_idx].get(mode="fill", fill_value=0)  # int[2, F, 9]
+        is_pickup = (UnitActionType.PICKUP == action_type)  # int[2, F, 9]
+        resource_type = actions.resource_type.at[unit_team_idx, unit_idx].get(mode="fill", fill_value=0)  # int[2, F, 9]
+        amount = actions.amount.at[unit_team_idx, unit_idx].get(mode="fill", fill_value=0)  # int[2, F, 9]
+        amount = amount * is_pickup  # int[2, F, 9]
+        chex.assert_shape(action_type, (2, self.MAX_N_FACTORIES, 9))
+        chex.assert_equal_shape([action_type, is_pickup, resource_type, amount])
+
+        # 2. calculate the amount of resource each robot can pickup
+        # this is the core logic. The most important thing is to calculate a cumulative sum of pick up amount.
+        # For a playere `p`, if its unit `u` successfully pick up resource `r` from factory `f`,
+        #   then the factory will lose `cumsum[p, f, u, r]` amount of resource `r` in total in this turn,
+        #   just after the unit finish picking up.
+        amount_by_type = jnp.zeros((2, self.MAX_N_FACTORIES, 9, 5), dtype=jnp.int32)  # int[2, F, 9, 5]
+        amount_by_type = amount_by_type.at[(
+            jnp.arange(2)[:, None, None],
+            jnp.arange(self.MAX_N_FACTORIES)[None, :, None],
+            jnp.arange(9)[None, None, :],
+            resource_type,
+        )].set(amount)
+        chex.assert_shape(amount_by_type, (2, self.MAX_N_FACTORIES, 9, 5))
+        cumsum = jnp.cumsum(amount_by_type, axis=-2)  # int[2, F, 9, 5]
+        stock = jnp.concatenate([self.factories.cargo.stock, self.factories.power[..., None]], axis=-1)  # int[2, F, 5]
+        real_cumsum = jnp.minimum(cumsum, stock[:, :, None, :])  # int[2, F, 9, 5]
+        real_cumsum_without_self = jnp.concatenate(
+            [
+                jnp.zeros((2, self.MAX_N_FACTORIES, 1, 5), dtype=jnp.int32),
+                real_cumsum[:, :, :-1, :],
+            ],
+            axis=-2,
+        )  # int[2, F, 9, 5]
+        real_pickup_amount = real_cumsum - real_cumsum_without_self  # int[2, F, 9, 5]
+        chex.assert_equal_shape([amount_by_type, cumsum, real_cumsum, real_cumsum_without_self, real_pickup_amount])
+
+        # 3. apply the real_pickup_amount
+        factory_lose = real_cumsum[:, :, -1, :]  # int[2, F, 5]
+        fac_power = self.factories.power - factory_lose[:, :, ResourceType.power]  # int[2, F]
+        fac_stock = self.factories.cargo.stock - factory_lose[:, :, :4]  # int[2, F, 4]
+        new_factories = self.factories._replace(power=fac_power, cargo=UnitCargo(fac_stock))
+
+        units_power = self.units.power.at[unit_team_idx, unit_idx].add(
+            real_pickup_amount[..., ResourceType.power],
+            mode='drop',
+        )  # int[2, U]
+        units_stock = self.units.cargo.stock.at[unit_team_idx, unit_idx].add(
+            real_pickup_amount[..., :4],
+            mode='drop',
+        )  # int[2, U, 4]
+        units_stock = jnp.minimum(units_stock, self.units.unit_cfg.CARGO_SPACE[..., None])
+        new_units = self.units._replace(power=units_power, cargo=UnitCargo(units_stock))
+        self = self._replace(factories=new_factories, units=new_units)
+
         return self
 
     def _handle_dig_actions(self: 'State', actions: UnitAction, weather_cfg: Dict[str, np.ndarray]):

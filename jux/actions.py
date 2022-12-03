@@ -58,7 +58,7 @@ class UnitAction(NamedTuple):
         return self.code[..., 1]
 
     @property
-    def resource(self):
+    def resource_type(self):
         return self.code[..., 2]
 
     @property
