@@ -158,6 +158,7 @@ class State(NamedTuple):
             unit_id2idx[unit_id] == [team_id, unit_idx]
             units[team_id, unit_idx].unit_id == unit_id
         '''
+        units.unit_id: Array
         unit_id2idx = jnp.ones((max_n_units, 2), dtype=np.int32) * jnp.iinfo(np.int32).max
         unit_id2idx = unit_id2idx.at[units.unit_id[..., 0, :]].set(
             jnp.array([
@@ -177,6 +178,7 @@ class State(NamedTuple):
 
     @staticmethod
     def generate_factory_id2idx(factories: Factory, max_n_factories: int) -> Array:
+        factories.unit_id: Array
         factory_id2idx = jnp.ones((max_n_factories, 2), dtype=np.int32) * jnp.iinfo(np.int32).max
         factory_id2idx = factory_id2idx.at[factories.unit_id[..., 0, :]].set(
             jnp.array([
@@ -330,14 +332,17 @@ class State(NamedTuple):
 
     @property
     def MAX_N_FACTORIES(self):
+        self.factories.unit_id: Array
         return self.factories.unit_id.shape[-1]
 
     @property
     def MAX_N_UNITS(self):
+        self.units.unit_id: Array
         return self.units.unit_id.shape[-1]
 
     @property
     def UNIT_ACTION_QUEUE_SIZE(self):
+        self.units.action_queue.data: Array
         return self.units.action_queue.data.shape[-2]
 
     @property
@@ -368,7 +373,7 @@ class State(NamedTuple):
         chex.assert_shape(unit_mask, (2, self.MAX_N_UNITS))
         return unit_mask
 
-    def parse_actions_from_dict(self, actions: Dict[str, Dict[str, Union[int, Array]]]) -> Tuple[Array, Array]:
+    def parse_actions_from_dict(self, actions: Dict[str, Dict[str, Union[int, Array]]]) -> JuxAction:
         # TODO
         factory_action = np.empty((2, self.MAX_N_FACTORIES), dtype=np.int32)
         factory_action.fill(FactoryAction.DO_NOTHING.value)
@@ -815,7 +820,7 @@ class State(NamedTuple):
         x, y = self.units.pos.x, self.units.pos.y  # int[]
         chex.assert_shape(x, (2, self.MAX_N_UNITS))
         chex.assert_shape(y, (2, self.MAX_N_UNITS))
-        rubble_amount = jnp.array(self.env_cfg.WEATHER.MARS_QUAKE.RUBBLE)[self.units.unit_type]
+        rubble_amount = jnp.array(self.env_cfg.WEATHER.MARS_QUAKE.RUBBLE)[self.units.unit_type]  # pytype: disable=attribute-error
         chex.assert_shape(rubble_amount, (2, self.MAX_N_UNITS))
 
         rubble = self.board.rubble.at[x, y].add(rubble_amount, mode='drop')

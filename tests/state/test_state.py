@@ -50,22 +50,38 @@ class TestState(chex.TestCase):
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
     def test_step_late_game(self):
-        buf_cfg = JuxBufferConfig(MAX_N_UNITS=20)
+        # function to be tested
+        state_step_late_game = self.variant(State._step_late_game)
+
+        # prepare an environment
+        buf_cfg = JuxBufferConfig(MAX_N_UNITS=40)
         env, actions = load_replay()
         for i in range(10):
             act = next(actions)
             env.step(act)
 
-        lux_state = env.state
-        lux_act = next(actions)
+        jux_state = State.from_lux(env.state, buf_cfg)
 
-        jux_state = State.from_lux(lux_state, buf_cfg)
-        jux_act = jux_state.parse_actions_from_dict(lux_act)
+        # step
+        def step_both(jux_state, env, lux_act):
 
-        # step jux state
-        state_step_late_game = self.variant(State._step_late_game)
-        jux_state = state_step_late_game(jux_state, jux_act)
+            jux_act = jux_state.parse_actions_from_dict(lux_act)
+            jux_state = state_step_late_game(jux_state, jux_act)
 
-        _ = env.step(lux_act)
-        lux_state = env.state
-        assert jux_state == State.from_lux(lux_state, buf_cfg)
+            env.step(lux_act)
+            lux_state = env.state
+
+            return jux_state, lux_state
+
+        # step 8 times
+        # it contains only 'move' and 'dig' actions for robots
+        # For factory, it contains only 'build' actions
+        for i, act in zip(range(8), actions):
+            jux_state, lux_state = step_both(jux_state, env, act)
+            assert jux_state == State.from_lux(lux_state, buf_cfg)
+
+        # # another step
+        # # it contains a new action 'pickup'
+        # act = next(actions)
+        # jux_state, lux_state = step_both(jux_state, env, act)
+        # assert jux_state == State.from_lux(lux_state, buf_cfg)

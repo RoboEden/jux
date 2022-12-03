@@ -146,7 +146,7 @@ class UnitAction(NamedTuple):
             max_transfer_amount,
             True,
         ])
-        return ((self.code >= min) & (self.code < max)).all(-1)
+        return ((self.code >= min) & (self.code <= max)).all(-1)
 
 
 class ActionQueue(NamedTuple):
@@ -183,7 +183,7 @@ class ActionQueue(NamedTuple):
 
     @property
     def capacity(self):
-        return self.data.shape[-1]
+        return self.data.shape[-2]
 
     def push(self, action: UnitAction) -> "ActionQueue":
         """Push an action into the queue. There is no way to thrown an error in jitted function. It is user's responsibility to check if the queue is full.
