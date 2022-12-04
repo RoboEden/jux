@@ -210,14 +210,14 @@ class Board(NamedTuple):
     def __eq__(self, __o: "Board") -> bool:
         if not isinstance(__o, Board):
             return False
-        return (self.height == __o.height and self.width == __o.width and self.seed == __o.seed
-                and self.factories_per_team == __o.factories_per_team and self.map == __o.map
-                and jnp.array_equal(self.lichen, __o.lichen)
-                and jnp.array_equal(self.lichen_strains, __o.lichen_strains)
-                and jnp.array_equal(self.units_map, __o.units_map)
-                and jnp.array_equal(self.factory_map, __o.factory_map)
-                and jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map)
-                and jnp.array_equal(self.spawn_masks, __o.spawn_masks))
+        return ((self.height == __o.height) & (self.width == __o.width) & (self.seed == __o.seed)
+                & (self.factories_per_team == __o.factories_per_team) & (self.map == __o.map)
+                & jnp.array_equal(self.lichen, __o.lichen)
+                & jnp.array_equal(self.lichen_strains, __o.lichen_strains)
+                & jnp.array_equal(self.units_map, __o.units_map)
+                & jnp.array_equal(self.factory_map, __o.factory_map)
+                & jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map)
+                & jnp.array_equal(self.spawn_masks, __o.spawn_masks))
 
     def update_units_map(self, units) -> 'Board':
         units_map = jnp.full_like(self.units_map, fill_value=INT32_MAX)

@@ -28,7 +28,9 @@ class Position(NamedTuple):
         return LuxPosition(np.array(self.pos))
 
     def __eq__(self, __o: object) -> bool:
-        return isinstance(__o, Position) and np.array_equal(self.pos, __o.pos)
+        if not isinstance(__o, Position):
+            return False
+        return jnp.array_equal(self.pos, __o.pos)
 
     def __add__(self, other: "Position") -> "Position":
         return Position(self.pos + other.pos)

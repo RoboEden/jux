@@ -17,7 +17,7 @@ class Factory(NamedTuple):
     # team # no need team object, team_id is enough
     unit_id: int = INT32_MAX
     pos: Position = Position()  # int16[2]
-    power: int = 0
+    power: int = jnp.int32(0)
     cargo: UnitCargo = UnitCargo()  # int[4]
     num_id: int = INT32_MAX
 
@@ -91,7 +91,7 @@ class Factory(NamedTuple):
         lux_factory = LuxFactory(
             team=teams[f"player_{self.team_id}"],
             unit_id=f"factory_{self.unit_id}",
-            num_id=self.num_id,
+            num_id=int(self.num_id),
         )
         lux_factory.pos = self.pos.to_lux()
         lux_factory.power = int(self.power)
@@ -99,5 +99,33 @@ class Factory(NamedTuple):
         return lux_factory
 
     def refine_step(self, env_cfg: EnvConfig) -> "Factory":
-        # TODO
-        return self
+        max_consumed_ice = jnp.minimum(self.cargo.ice, env_cfg.FACTORY_PROCESSING_RATE_WATER)
+        max_consumed_ore = jnp.minimum(self.cargo.ore, env_cfg.FACTORY_PROCESSING_RATE_METAL)
+        # permit refinement of blocks of resources, no floats.
+        produced_water = max_consumed_ice // env_cfg.ICE_WATER_RATIO
+        produced_metal = max_consumed_ore // env_cfg.ORE_METAL_RATIO
+
+        stock_change = jnp.stack(
+            [
+                -produced_water * env_cfg.ICE_WATER_RATIO,
+                -produced_metal * env_cfg.ORE_METAL_RATIO,
+                produced_water,
+                produced_metal,
+            ],
+            axis=-1,
+        )  # int[..., 4]
+
+        new_stock = self.cargo.stock + stock_change
+        return self._replace(cargo=UnitCargo(new_stock))
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Factory):
+            return False
+        eq = True
+        eq = eq & (self.team_id == other.team_id)
+        eq = eq & (self.unit_id == other.unit_id)
+        eq = eq & (self.pos == other.pos)
+        eq = eq & (self.power == other.power)
+        eq = eq & (self.cargo == other.cargo)
+        eq = eq & (self.num_id == other.num_id)
+        return eq

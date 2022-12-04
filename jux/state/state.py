@@ -9,11 +9,10 @@ from jax.experimental import checkify
 from luxai2022.state import State as LuxState
 
 import jux
-import jux.map.weather
-from jux.actions import ActionQueue, FactoryAction, UnitAction, UnitActionType
+from jux.actions import FactoryAction, JuxAction, UnitAction, UnitActionType
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.factory import Factory, LuxFactory
-from jux.map import Board, Weather
+from jux.map import Board
 from jux.map.position import Direction, Position, direct2delta_xy
 from jux.team import LuxTeam, Team
 from jux.unit import LuxUnit, Unit, UnitCargo, UnitType
@@ -22,15 +21,18 @@ from jux.unit_cargo import ResourceType
 INT32_MAX = jnp.iinfo(jnp.int32).max
 
 
-class JuxAction(NamedTuple):
-    factory_action: Array  # int[2, MAX_N_FACTORIES]
-    unit_action_queue: UnitAction  # UnitAction[2, MAX_N_UNITS, UNIT_ACTION_QUEUE_SIZE]
-    unit_action_queue_count: Array  # int[2, MAX_N_UNITS]
-    unit_action_queue_update: Array  # bool[2, MAX_N_UNITS]
-
-
 def is_day(env_cfg: EnvConfig, env_step):
     return env_step % env_cfg.CYCLE_LENGTH < env_cfg.DAY_LENGTH
+
+
+@jax.jit
+def sort_by_unit_id(units: Union[Unit, Factory]):
+    idx = jnp.argsort(units.unit_id, axis=1)
+    units = jax.tree_util.tree_map(lambda x: x[jnp.arange(2)[:, None], idx], units)
+    return units
+
+
+batch_into_leaf_jitted = jax.jit(jux.tree_util.batch_into_leaf, static_argnames=('axis', ))
 
 
 class State(NamedTuple):
@@ -72,83 +74,89 @@ class State(NamedTuple):
 
     teams: Team  # Team[2]
 
-    @property
-    def global_id(self):
-        return self.n_units[0] + self.n_units[1] + self.n_factories[0] + self.n_factories[1]
+    global_id: int = jnp.int32(0)
 
     @classmethod
     def from_lux(cls, lux_state: LuxState, buf_cfg: JuxBufferConfig) -> "State":
-        env_cfg = EnvConfig.from_lux(lux_state.env_cfg)
+        with jax.default_device(jax.devices("cpu")[0]):
+            env_cfg = EnvConfig.from_lux(lux_state.env_cfg)
 
-        # convert units
-        units: Tuple[List[Unit], List[Unit]] = (
-            [Unit.from_lux(unit, env_cfg) for unit in lux_state.units['player_0'].values()],
-            [Unit.from_lux(unit, env_cfg) for unit in lux_state.units['player_1'].values()],
-        )
-        units[0].sort(key=lambda unit: unit.unit_id)  # sort
-        units[1].sort(key=lambda unit: unit.unit_id)
-        n_units = [
-            len(lux_state.units['player_0']),
-            len(lux_state.units['player_1']),
-        ]
-        empty_unit = Unit.empty(env_cfg)
-        empty_unit = jax.tree_util.tree_map(lambda x: jnp.array(x)[None, ...], empty_unit)
-        padding_units = (  # padding to length of buf_cfg.max_units
-            jax.tree_util.tree_map(lambda x: x.repeat(buf_cfg.MAX_N_UNITS - n_units[0], axis=0), empty_unit),
-            jax.tree_util.tree_map(lambda x: x.repeat(buf_cfg.MAX_N_UNITS - n_units[1], axis=0), empty_unit),
-        )
-        units: Unit = jux.tree_util.batch_into_leaf([  # batch into leaf
-            jux.tree_util.concat_in_leaf([jux.tree_util.batch_into_leaf(units[0]), padding_units[0]])
-            if n_units[0] > 0 else padding_units[0],
-            jux.tree_util.concat_in_leaf([jux.tree_util.batch_into_leaf(units[1]), padding_units[1]])
-            if n_units[1] > 0 else padding_units[1],
-        ])
-        n_units = jnp.array(n_units)
-        unit_id2idx = State.generate_unit_id2idx(units, buf_cfg.MAX_N_UNITS)
+            # convert units
+            def convert_units(lux_units: LuxUnit) -> Tuple[Unit, Array]:
+                units: Tuple[List[Unit], List[Unit]] = (
+                    [Unit.from_lux(unit, env_cfg) for unit in lux_units['player_0'].values()],
+                    [Unit.from_lux(unit, env_cfg) for unit in lux_units['player_1'].values()],
+                )
+                units[0].sort(key=lambda unit: unit.unit_id)  # sort
+                units[1].sort(key=lambda unit: unit.unit_id)
+                n_units = [
+                    len(lux_units['player_0']),
+                    len(lux_units['player_1']),
+                ]
+                u = Unit.empty(env_cfg)
+                units = (  # padding to length of buf_cfg.MAX_N_UNITS
+                    units[0] + [u] * (buf_cfg.MAX_N_UNITS - n_units[0]),
+                    units[1] + [u] * (buf_cfg.MAX_N_UNITS - n_units[1]),
+                )
+                units: Unit = batch_into_leaf_jitted([  # batch into leaf
+                    batch_into_leaf_jitted(units[0]),
+                    batch_into_leaf_jitted(units[1]),
+                ])
+                n_units = jnp.array(n_units)
+                return units, n_units
 
-        # convert factories
-        factories: Tuple[List[Factory], List[Factory]] = (
-            [Factory.from_lux(fac) for fac in lux_state.factories['player_0'].values()],
-            [Factory.from_lux(fac) for fac in lux_state.factories['player_1'].values()],
-        )
-        factories[0].sort(key=lambda fac: fac.unit_id)  # sort
-        factories[1].sort(key=lambda fac: fac.unit_id)
-        n_factories = [
-            len(lux_state.factories['player_0']),
-            len(lux_state.factories['player_1']),
-        ]
-        f = Factory.empty()
-        factories = (  # padding to length of buf_cfg.max_factories
-            factories[0] + [f] * (buf_cfg.MAX_N_FACTORIES - n_factories[0]),
-            factories[1] + [f] * (buf_cfg.MAX_N_FACTORIES - n_factories[1]),
-        )
-        factories: Factory = jux.tree_util.batch_into_leaf([  # batch into leaf
-            jux.tree_util.batch_into_leaf(factories[0]),
-            jux.tree_util.batch_into_leaf(factories[1]),
-        ])
-        n_factories = jnp.array(n_factories)
-        factory_id2idx = State.generate_factory_id2idx(factories, buf_cfg.MAX_N_FACTORIES)
+            units, n_units = convert_units(lux_state.units)
+            unit_id2idx = State.generate_unit_id2idx(units, buf_cfg.MAX_N_UNITS)
 
-        teams: List[Team] = [Team.from_lux(team, buf_cfg) for team in lux_state.teams.values()]
-        teams.sort(key=lambda team: team.team_id)
-        teams: Team = jux.tree_util.batch_into_leaf(teams)
+            # convert factories
+            def convert_factories(lux_factories: LuxFactory) -> Tuple[Factory, Array]:
+                factories: Tuple[List[Factory], List[Factory]] = (
+                    [Factory.from_lux(fac) for fac in lux_factories['player_0'].values()],
+                    [Factory.from_lux(fac) for fac in lux_factories['player_1'].values()],
+                )
+                factories[0].sort(key=lambda fac: fac.unit_id)  # sort
+                factories[1].sort(key=lambda fac: fac.unit_id)
+                n_factories = [
+                    len(lux_factories['player_0']),
+                    len(lux_factories['player_1']),
+                ]
+                f = Factory.empty()
+                factories = (  # padding to length of buf_cfg.MAX_N_FACTORIES
+                    factories[0] + [f] * (buf_cfg.MAX_N_FACTORIES - n_factories[0]),
+                    factories[1] + [f] * (buf_cfg.MAX_N_FACTORIES - n_factories[1]),
+                )
+                factories: Factory = batch_into_leaf_jitted([  # batch into leaf
+                    batch_into_leaf_jitted(factories[0]),
+                    batch_into_leaf_jitted(factories[1]),
+                ])
+                n_factories = jnp.array(n_factories)
+                return factories, n_factories
 
-        state = State(
-            env_cfg=env_cfg,
-            seed=lux_state.seed,
-            rng_state=jax.random.PRNGKey(lux_state.seed),
-            env_steps=lux_state.env_steps,
-            board=Board.from_lux(lux_state.board, buf_cfg),
-            weather_schedule=jnp.array(lux_state.weather_schedule),
-            units=units,
-            n_units=n_units,
-            unit_id2idx=unit_id2idx,
-            factories=factories,
-            n_factories=n_factories,
-            factory_id2idx=factory_id2idx,
-            teams=teams,
-        )
-        state.check_id2idx()
+            factories, n_factories = convert_factories(lux_state.factories)
+            factory_id2idx = State.generate_factory_id2idx(factories, buf_cfg.MAX_N_FACTORIES)
+
+            teams: List[Team] = [Team.from_lux(team, buf_cfg) for team in lux_state.teams.values()]
+            teams.sort(key=lambda team: team.team_id)
+            teams: Team = batch_into_leaf_jitted(teams)
+
+            state = State(
+                env_cfg=env_cfg,
+                seed=lux_state.seed,
+                rng_state=jax.random.PRNGKey(lux_state.seed),
+                env_steps=lux_state.env_steps,
+                board=Board.from_lux(lux_state.board, buf_cfg),
+                weather_schedule=jnp.array(lux_state.weather_schedule),
+                units=units,
+                n_units=n_units,
+                unit_id2idx=unit_id2idx,
+                factories=factories,
+                n_factories=n_factories,
+                factory_id2idx=factory_id2idx,
+                teams=teams,
+                global_id=jnp.int32(lux_state.global_id),
+            )
+        state = jax.device_put(state, jax.devices()[0])
+        # state.check_id2idx()
         return state
 
     @staticmethod
@@ -271,64 +279,57 @@ class State(NamedTuple):
         if not isinstance(other, State):
             return False
 
-        self.check_id2idx()
-        other.check_id2idx()
+        # self.check_id2idx()
+        # other.check_id2idx()
 
         def teams_eq(teams_a: Team, teams_b: Team) -> bool:
             teams_a = jux.tree_util.batch_out_of_leaf(teams_a)
             teams_b = jux.tree_util.batch_out_of_leaf(teams_b)
-            return teams_a == teams_b
+            return (teams_a[0] == teams_b[0]) & (teams_a[1] == teams_b[1])
 
         def units_eq(units_a: Unit, n_units_a: Array, units_b: Unit, n_units_b: Array) -> bool:
-            if not jnp.array_equal(n_units_a, n_units_b):
-                return False
-            units_a_0 = jax.tree_util.tree_map(lambda x: x[0, :n_units_a[0]], units_a)
-            units_b_0 = jax.tree_util.tree_map(lambda x: x[0, :n_units_b[0]], units_b)
-            units_a_0 = jux.tree_util.batch_out_of_leaf(units_a_0)
-            units_b_0 = jux.tree_util.batch_out_of_leaf(units_b_0)
-            units_a_0.sort(key=lambda x: x.unit_id)
-            units_b_0.sort(key=lambda x: x.unit_id)
-            if not (units_a_0 == units_b_0):
-                return False
 
-            units_a_1 = jax.tree_util.tree_map(lambda x: x[1, :n_units_a[1]], units_a)
-            units_b_1 = jax.tree_util.tree_map(lambda x: x[1, :n_units_b[1]], units_b)
-            units_a_1 = jux.tree_util.batch_out_of_leaf(units_a_1)
-            units_b_1 = jux.tree_util.batch_out_of_leaf(units_b_1)
-            units_a_1.sort(key=lambda x: x.unit_id)
-            units_b_1.sort(key=lambda x: x.unit_id)
-            if not (units_a_1 == units_b_1):
-                return False
-            return True
+            def when_n_eq(self, units_a, units_b):
+                units_a = sort_by_unit_id(units_a)
+                units_b = sort_by_unit_id(units_b)
+                eq = jax.vmap(jax.vmap(Unit.__eq__))(units_a, units_b)
+                unit_mask = self.unit_mask
+                return (eq | ~unit_mask).all()
+
+            return jax.lax.cond(
+                jnp.array_equal(n_units_a, n_units_b),
+                when_n_eq,  # when numbers are equal, we compare them.
+                lambda *args: False,  # when nubmer differ, return false
+                self,
+                units_a,
+                units_b,
+            )
 
         def factories_eq(factories_a: Factory, n_factories_a: Array, factories_b: Factory,
                          n_factories_b: Array) -> bool:
-            if not jnp.array_equal(n_factories_a, n_factories_b):
-                return False
-            factories_a_0 = jax.tree_util.tree_map(lambda x: x[0, :n_factories_a[0]], factories_a)
-            factories_b_0 = jax.tree_util.tree_map(lambda x: x[0, :n_factories_b[0]], factories_b)
-            factories_a_0 = jux.tree_util.batch_out_of_leaf(factories_a_0)
-            factories_b_0 = jux.tree_util.batch_out_of_leaf(factories_b_0)
-            factories_a_0.sort(key=lambda x: x.unit_id)
-            factories_b_0.sort(key=lambda x: x.unit_id)
-            if not factories_a_0 == factories_b_0:
-                return False
 
-            factories_a_1 = jax.tree_util.tree_map(lambda x: x[1, :n_factories_a[1]], factories_a)
-            factories_b_1 = jax.tree_util.tree_map(lambda x: x[1, :n_factories_b[1]], factories_b)
-            factories_a_1 = jux.tree_util.batch_out_of_leaf(factories_a_1)
-            factories_b_1 = jux.tree_util.batch_out_of_leaf(factories_b_1)
-            factories_a_1.sort(key=lambda x: x.unit_id)
-            factories_b_1.sort(key=lambda x: x.unit_id)
-            if not factories_a_1 == factories_b_1:
-                return False
-            return True
+            def when_n_eq(self, factories_a, factories_b):
+                factories_a = sort_by_unit_id(factories_a)
+                factories_b = sort_by_unit_id(factories_b)
+                eq = jax.vmap(jax.vmap(Factory.__eq__))(factories_a, factories_b)
+                factory_mask = self.factory_mask
+                return (eq | ~factory_mask).all()
 
-        return (self.env_cfg == other.env_cfg and self.env_steps == other.env_steps and self.board == other.board
-                and jnp.array_equal(self.weather_schedule, other.weather_schedule)
-                and teams_eq(self.teams, other.teams)
-                and factories_eq(self.factories, self.n_factories, other.factories, other.n_factories)
-                and units_eq(self.units, self.n_units, other.units, other.n_units))
+            return jax.lax.cond(
+                jnp.array_equal(n_factories_a, n_factories_b),
+                when_n_eq,  # when numbers are equal, we compare them.
+                lambda *args: False,  # when number differ, return false
+                self,
+                factories_a,
+                factories_b)
+
+        # self = jax.device_put(self, jax.devices("cpu")[0])
+        # other = jax.device_put(other, jax.devices("cpu")[0])
+        return ((self.env_steps == other.env_steps) & (self.board == other.board)
+                & jnp.array_equal(self.weather_schedule, other.weather_schedule)
+                & teams_eq(self.teams, other.teams)
+                & factories_eq(self.factories, self.n_factories, other.factories, other.n_factories)
+                & units_eq(self.units, self.n_units, other.units, other.n_units))
 
     @property
     def MAX_N_FACTORIES(self):
@@ -374,7 +375,6 @@ class State(NamedTuple):
         return unit_mask
 
     def parse_actions_from_dict(self, actions: Dict[str, Dict[str, Union[int, Array]]]) -> JuxAction:
-        # TODO
         factory_action = np.empty((2, self.MAX_N_FACTORIES), dtype=np.int32)
         factory_action.fill(FactoryAction.DO_NOTHING.value)
 
@@ -403,6 +403,11 @@ class State(NamedTuple):
                     unit_action_queue_update[player_id, idx] = True
                 else:
                     raise ValueError(f'Unknown unit_id: {unit_id}')
+
+        factory_action = jnp.array(factory_action)
+        unit_action_queue = jnp.array(unit_action_queue)
+        unit_action_queue_count = jnp.array(unit_action_queue_count)
+        unit_action_queue_update = jnp.array(unit_action_queue_update)
 
         return JuxAction(
             factory_action,
@@ -441,7 +446,7 @@ class State(NamedTuple):
         # TODO
         real_env_steps = jnp.where(
             self.env_cfg.BIDDING_SYSTEM,
-            self.env_steps - self.board.factories_per_team + 1 + 1,
+            self.env_steps - (self.board.factories_per_team + 1 + 1),
             self.env_steps,
         )
         unit_mask = self.unit_mask
@@ -449,9 +454,9 @@ class State(NamedTuple):
 
         # handle weather effects
         current_weather = self.weather_schedule[real_env_steps]
-        weather_cfg = jux.map.weather.get_weather_cfg(self.env_cfg.WEATHER, current_weather)
+        weather_cfg = jux.weather.get_weather_cfg(self.env_cfg.WEATHER, current_weather)
         self: 'State' = jax.lax.cond(
-            current_weather == Weather.MARS_QUAKE,
+            current_weather == jux.weather.Weather.MARS_QUAKE,
             lambda s: s._mars_quake(),
             lambda s: s,
             self,
@@ -495,7 +500,7 @@ class State(NamedTuple):
         update_queue = actions.unit_action_queue_update & unit_mask & (update_power_req <= self.units.power)
         new_power = jnp.where(update_queue, self.units.power - update_power_req, self.units.power)
         chex.assert_shape(new_power, (2, self.MAX_N_UNITS))
-        new_action_queue = ActionQueue(
+        new_action_queue = jux.actions.ActionQueue(
             data=jnp.where(update_queue[..., None, None], actions.unit_action_queue.code, self.units.action_queue.data),
             count=jnp.where(update_queue, actions.unit_action_queue_count, self.units.action_queue.count),
             front=jnp.where(update_queue, 0, self.units.action_queue.front),
@@ -573,11 +578,101 @@ class State(NamedTuple):
         return self
 
     def _handle_transfer_actions(self, actions: UnitAction):
-        # TODO
-        # breakpoint()
-        # is_transfer = (actions.action_type == UnitActionType.TRANSFER)
-        # transfer_amount =
+        # pytype: disable=attribute-error
+        # pytype: disable=unsupported-operands
+
+        # 1. validate the action
+        is_transfer = (actions.action_type == UnitActionType.TRANSFER)
+
+        # only allow transfer if there is enough resources
+        stock = self.units.cargo.stock[(
+            jnp.arange(2)[:, None],
+            jnp.arange(self.MAX_N_UNITS)[None, :],
+            actions.resource_type,
+        )]  # int[2, U]
+        stock = jnp.where(actions.resource_type == ResourceType.power, self.units.power, stock)  # int[2, U]
+        is_transfer = is_transfer & (actions.amount <= stock)  # bool[2, U]
+
+        # the target must be in map
+        target_pos = Position(self.units.pos.pos + direct2delta_xy[actions.direction])  # int[2, U, 2]
+        within_map = ((target_pos.pos >= 0) & (target_pos.pos < self.env_cfg.map_size)).all(-1)  # bool[2, U]
+        is_transfer = is_transfer & within_map
+
+        # there must be a target
+        target_factory_id = self.board.factory_occupancy_map[target_pos.y, target_pos.x]  # int[2, U]
+        target_factory_idx = self.factory_id2idx.at[target_factory_id].get('fill', fill_value=INT32_MAX)  # int[2, U, 2]
+        there_is_a_factory = target_factory_idx[..., 1] < self.n_factories[:, None]  # bool[2, U]
+
+        target_unit_id = self.board.units_map[target_pos.y, target_pos.x]  # int[2, U]
+        target_unit_idx = self.unit_id2idx.at[target_unit_id].get('fill', fill_value=INT32_MAX)  # int[2, U, 2]
+        there_is_an_unit = target_unit_idx[..., 1] < self.n_units[:, None]  # bool[2, U]
+        is_transfer = is_transfer & (there_is_an_unit | there_is_a_factory)
+
+        # 2. handle the action
+        transfer_to_factory = is_transfer & there_is_a_factory  # bool[2, U]
+        transfer_to_unit = is_transfer & ~there_is_a_factory  # bool[2, U]
+        is_power = (actions.resource_type == ResourceType.power)
+
+        # deduce from unit
+        transferred_resource = jnp.where(is_transfer & ~is_power, actions.amount, 0)  # int[2, U]
+        transferred_power = jnp.where(is_transfer & is_power, actions.amount, 0)  # int[2, U]
+        unit_stock = self.units.cargo.stock.at[(
+            jnp.arange(2)[:, None],
+            jnp.arange(self.MAX_N_UNITS)[None, :],
+            actions.resource_type,
+        )].add(-transferred_resource, mode='drop')  # int[2, U, 4]
+        unit_power = self.units.power.at[(
+            jnp.arange(2)[:, None],
+            jnp.arange(self.MAX_N_UNITS)[None, :],
+        )].add(-transferred_power, mode='drop')  # int[2, U]
+        units = self.units._replace(
+            cargo=UnitCargo(unit_stock),
+            power=unit_power,
+        )
+        self = self._replace(units=units)
+
+        # transfer to factory
+        transferred_resource = jnp.where(transfer_to_factory & ~is_power, actions.amount, 0)  # int[2, U]
+        transferred_power = jnp.where(transfer_to_factory & is_power, actions.amount, 0)  # int[2, U]
+        factory_stock = self.factories.cargo.stock.at[(
+            jnp.arange(2)[:, None],
+            target_factory_idx[..., 1],
+            actions.resource_type,
+        )].add(transferred_resource, mode='drop')  # int[2, F, 4]
+        factory_power = self.factories.power.at[(
+            jnp.arange(2)[:, None],
+            target_factory_idx[..., 1],
+        )].add(transferred_power, mode='drop')  # int[2, F]
+        factories = self.factories._replace(
+            cargo=UnitCargo(factory_stock),
+            power=factory_power,
+        )
+        self = self._replace(factories=factories)
+
+        # transfer to unit
+        transferred_resource = jnp.where(transfer_to_unit & ~is_power, actions.amount, 0)  # int[2, U]
+        transferred_power = jnp.where(transfer_to_unit & is_power, actions.amount, 0)  # int[2, U]
+        unit_stock = self.units.cargo.stock.at[(
+            jnp.arange(2)[:, None],
+            target_unit_idx[..., 1],
+            actions.resource_type,
+        )].add(transferred_resource, mode='drop')  # int[2, U, 4]
+        unit_stock = jnp.minimum(unit_stock, self.units.unit_cfg.CARGO_SPACE[..., None])  # int[2, U, 4]
+
+        unit_power = self.units.power.at[(
+            jnp.arange(2)[:, None],
+            target_unit_idx[..., 1],
+        )].add(transferred_power, mode='drop')  # int[2, U]
+        unit_power = jnp.minimum(unit_power, self.units.unit_cfg.BATTERY_CAPACITY)  # int[2, U]
+        units = self.units._replace(
+            cargo=UnitCargo(unit_stock),
+            power=unit_power,
+        )
+        self = self._replace(units=units)
+
         return self
+        # pytype: enable=attribute-error
+        # pytype: enable=unsupported-operands
 
     def _handle_pickup_actions(self, actions: UnitAction):
         # This action is difficult to vectorize, because pickup actions are not
@@ -589,6 +684,9 @@ class State(NamedTuple):
         # The following implementation relies on the fact that
         #  1. there are at most 9 robots on one factory.
         #  2. opponent's robots cannot move into our factory.
+
+        # pytype: disable=attribute-error
+        # pytype: disable=unsupported-operands
 
         # 1. prepare some data
         # get the pos of 9 cells around the factory
@@ -659,6 +757,8 @@ class State(NamedTuple):
         self = self._replace(factories=new_factories, units=new_units)
 
         return self
+        # pytype: enable=attribute-error
+        # pytype: enable=unsupported-operands
 
     def _handle_dig_actions(self: 'State', actions: UnitAction, weather_cfg: Dict[str, np.ndarray]):
         # 1. check if dig action is valid
@@ -773,6 +873,7 @@ class State(NamedTuple):
             n_units=new_n_units,
             unit_id2idx=State.generate_unit_id2idx(new_units, self.MAX_N_UNITS),
             board=self.board.update_units_map(new_units),
+            global_id=self.global_id + n_new_units.sum(),
         )
 
     def _handle_movement_actions(self, actions: UnitAction, weather_cfg: Dict[str, np.ndarray]):

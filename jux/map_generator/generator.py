@@ -64,7 +64,7 @@ class GameMap(NamedTuple):
         width, height = self.width, self.height
         if not isinstance(__o, GameMap):
             return False
-        return (self.width == __o.width and self.height == __o.height and self.symmetry == __o.symmetry
-                and jnp.array_equal(self.rubble[:height, :width], __o.rubble[:height, :width])
-                and jnp.array_equal(self.ice[:height, :width], __o.ice[:height, :width])
-                and jnp.array_equal(self.ore[:height, :width], __o.ore[:height, :width]))
+        return ((self.width == __o.width) & (self.height == __o.height) & (self.symmetry == __o.symmetry)
+                & jnp.array_equal(self.rubble, __o.rubble)
+                & jnp.array_equal(self.ice, __o.ice)
+                & jnp.array_equal(self.ore, __o.ore))

@@ -49,7 +49,7 @@ class Unit(NamedTuple):
     pos: Position = Position()
 
     cargo: UnitCargo = UnitCargo()
-    power: int = 0
+    power: int = jnp.int32(0)
 
     @classmethod
     def new(cls, team_id: int, unit_type: Union[UnitType, int], unit_id: int, env_cfg: EnvConfig):
@@ -88,7 +88,7 @@ class Unit(NamedTuple):
     def from_lux(cls, lux_unit: LuxUnit, env_cfg: EnvConfig) -> "Unit":
         unit_id = int(lux_unit.unit_id[len('unit_'):])
         return Unit(
-            unit_type=UnitType.from_lux(lux_unit.unit_type),
+            unit_type=jnp.int32(UnitType.from_lux(lux_unit.unit_type)),
             team_id=lux_unit.team_id,
             unit_id=unit_id,
             pos=Position.from_lux(lux_unit.pos),
@@ -184,3 +184,17 @@ class Unit(NamedTuple):
         new_power = self.power + jnp.ceil(self.unit_cfg.CHARGE * power_gain_factor).astype(jnp.int32)
         new_power = jnp.minimum(new_power, self.battery_capacity)
         return self._replace(power=new_power)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Unit):
+            return False
+        eq = True
+        eq = eq & (self.unit_id == other.unit_id)
+        eq = eq & (self.unit_type == other.unit_type)
+        eq = eq & (self.action_queue == other.action_queue)
+        eq = eq & (self.team_id == other.team_id)
+        eq = eq & (self.unit_id == other.unit_id)
+        eq = eq & (self.pos == other.pos)
+        eq = eq & (self.cargo == other.cargo)
+        eq = eq & (self.power == other.power)
+        return eq
