@@ -3,6 +3,7 @@ from typing import List, Sequence, TypeVar
 
 import jax
 import jax.numpy as jnp
+from jax import Array
 
 T = TypeVar("T")
 
@@ -67,3 +68,22 @@ def concat_in_leaf(seq: Sequence[T], axis=0) -> T:
     assert len(seq) > 0
     concat = partial(jnp.concatenate, axis=axis)
     return jax.tree_map(lambda *xs: concat(xs), *seq)
+
+
+def tree_where(cond: Array, true: T, false: T) -> T:
+    """A version of jnp.where that works on pytrees.
+
+    Args:
+        cond: a pytree of bools.
+        true: a pytree.
+        false: a pytree has same structure as true.
+
+    Returns:
+        pytree: a pytree with the same structure as true and false.
+    """
+
+    def _where(t, f):
+        new_cond_shape = cond.shape + (1, ) * (max(len(t.shape), len(f.shape)) - len(cond.shape))
+        return jnp.where(cond.reshape(new_cond_shape), t, f)
+
+    return jax.tree_util.tree_map(_where, true, false)

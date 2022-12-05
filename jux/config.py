@@ -1,14 +1,13 @@
 import dataclasses
-from collections import namedtuple
 from copy import copy
 from typing import Any, Dict, NamedTuple, Tuple
 
+import jax
 from luxai2022.config import EnvConfig as LuxEnvConfig
 from luxai2022.config import UnitConfig as LuxUnitConfig
 
-
-def make_namedtuple(**kwargs) -> NamedTuple:
-    return namedtuple('NamedTuple', kwargs.keys())(**kwargs)
+import jux
+from jux.weather import WeatherConfig
 
 
 class UnitConfig(NamedTuple):
@@ -56,9 +55,9 @@ class EnvConfig(NamedTuple):
     DAY_LENGTH: int = 30
     UNIT_ACTION_QUEUE_SIZE: int = 20  # when set to 1, then no action queue is used
 
-    UNIT_ACTION_QUEUE_POWER_COST: Tuple[int, int] = make_namedtuple(  # pytype: disable=annotation-type-mismatch
-        LIGHT=1,  # UnitType.LIGHT
-        HEAVY=10,  # UnitType.HEAVY
+    UNIT_ACTION_QUEUE_POWER_COST: Tuple[int, int] = (
+        1,  # UnitType.LIGHT
+        10,  # UnitType.HEAVY
     )
 
     MAX_RUBBLE: int = 100
@@ -93,9 +92,9 @@ class EnvConfig(NamedTuple):
     # so we set it to 0
 
     #### Units ####
-    ROBOTS: Tuple[UnitConfig, UnitConfig] = make_namedtuple(  # pytype: disable=annotation-type-mismatch
+    ROBOTS: Tuple[UnitConfig, UnitConfig] = (
         # UnitType.LIGHT
-        LIGHT=UnitConfig(
+        UnitConfig(
             METAL_COST=10,
             POWER_COST=50,
             INIT_POWER=50,
@@ -112,7 +111,7 @@ class EnvConfig(NamedTuple):
             RUBBLE_AFTER_DESTRUCTION=1,
         ),
         # UnitType.HEAVY
-        HEAVY=UnitConfig(
+        UnitConfig(
             METAL_COST=100,
             POWER_COST=500,
             INIT_POWER=500,
@@ -134,35 +133,35 @@ class EnvConfig(NamedTuple):
     # WEATHER_ID_TO_NAME: list = dataclasses.field(
     #     default_factory=lambda: ["NONE", "MARS_QUAKE", "COLD_SNAP", "DUST_STORM", "SOLAR_FLARE"])
     NUM_WEATHER_EVENTS_RANGE: Tuple[int, int] = (3, 5)
-    WEATHER: Tuple[NamedTuple, NamedTuple, NamedTuple, NamedTuple, NamedTuple] = make_namedtuple(  # pytype: disable=annotation-type-mismatch
+    WEATHER: WeatherConfig = WeatherConfig(  # pytype: disable=annotation-type-mismatch
         # Weather.NONE
-        NONE=make_namedtuple(),
+        NONE=(),
         # Weather.MARS_QUAKE
-        MARS_QUAKE=make_namedtuple(
+        MARS_QUAKE=jux.weather.MarsQuake(
             # amount of rubble generated under each robot per turn
             RUBBLE=(
                 1,  # UnitType.LIGHT
                 10,  # UnitType.HEAVY
             ),
-            TIME_RANGE=[1, 5],
+            TIME_RANGE=(1, 5),
         ),
         # Weather.COLD_SNAP
-        COLD_SNAP=make_namedtuple(
+        COLD_SNAP=jux.weather.ColdSnap(
             # power multiplier required per robot action. 2 -> requires 2x as much power to execute the same action
-            POWER_CONSUMPTION=2,
-            TIME_RANGE=[10, 30],
+            POWER_CONSUMPTION=2,  # must be integer
+            TIME_RANGE=(10, 30),
         ),
         # Weather.DUST_STORM
-        DUST_STORM=make_namedtuple(
+        DUST_STORM=jux.weather.DustStorm(
             # power gain multiplier. .5 -> gain .5x as much power per turn
             POWER_GAIN=0.5,
-            TIME_RANGE=[10, 30],
+            TIME_RANGE=(10, 30),
         ),
         # Weather.SOLAR_FLARE
-        SOLAR_FLARE=make_namedtuple(
+        SOLAR_FLARE=jux.weather.SolarFlare(
             # power gain multiplier. 2 -> gain 2x as much power per turn
-            POWER_GAIN=2,
-            TIME_RANGE=[10, 30],
+            POWER_GAIN=2.0,
+            TIME_RANGE=(10, 30),
         ),
     )
 
@@ -170,29 +169,37 @@ class EnvConfig(NamedTuple):
     def from_lux(cls, lux_env_config: LuxEnvConfig):
         lux_env_config = copy(lux_env_config)
 
-        lux_env_config.UNIT_ACTION_QUEUE_POWER_COST = make_namedtuple(**lux_env_config.UNIT_ACTION_QUEUE_POWER_COST)
-        lux_env_config.ROBOTS = make_namedtuple(
-            **{name: UnitConfig.from_lux(unit_cfg)
-               for name, unit_cfg in lux_env_config.ROBOTS.items()})
+        lux_env_config.UNIT_ACTION_QUEUE_POWER_COST = (
+            lux_env_config.UNIT_ACTION_QUEUE_POWER_COST['LIGHT'],
+            lux_env_config.UNIT_ACTION_QUEUE_POWER_COST['HEAVY'],
+        )
+        lux_env_config.ROBOTS = (
+            UnitConfig.from_lux(lux_env_config.ROBOTS['LIGHT']),
+            UnitConfig.from_lux(lux_env_config.ROBOTS['HEAVY']),
+        )
 
         lux_env_config.NUM_WEATHER_EVENTS_RANGE = tuple(lux_env_config.NUM_WEATHER_EVENTS_RANGE)
-        lux_env_config.WEATHER = make_namedtuple(
-            NONE=make_namedtuple(),
-            **{name: make_namedtuple(**weather_cfg)
-               for name, weather_cfg in lux_env_config.WEATHER.items()})
+        lux_env_config.WEATHER = WeatherConfig.from_lux(lux_env_config.WEATHER)
 
         lux_env_config = dataclasses.asdict(lux_env_config)
         lux_env_config.pop('WEATHER_ID_TO_NAME')
         return EnvConfig(**lux_env_config)
 
     def to_lux(self) -> LuxEnvConfig:
+        self = jax.tree_map(lambda x: x.item() if isinstance(x, jax.Array) else x, self)
         self: Dict[str, Any] = self._asdict()
-        self['UNIT_ACTION_QUEUE_POWER_COST'] = self['UNIT_ACTION_QUEUE_POWER_COST']._asdict()
-        self['ROBOTS'] = {name: unit_cfg.to_lux() for name, unit_cfg in self['ROBOTS']._asdict().items()}
-        self['WEATHER'] = {name: weather_cfg._asdict() for name, weather_cfg in self['WEATHER']._asdict().items()}
+
+        self['UNIT_ACTION_QUEUE_POWER_COST'] = dict(
+            LIGHT=self['UNIT_ACTION_QUEUE_POWER_COST'][0],
+            HEAVY=self['UNIT_ACTION_QUEUE_POWER_COST'][1],
+        )
+        self['ROBOTS'] = dict(
+            LIGHT=self['ROBOTS'][0].to_lux(),
+            HEAVY=self['ROBOTS'][1].to_lux(),
+        )
+        self['WEATHER'] = self['WEATHER'].to_lux()
         self['NUM_WEATHER_EVENTS_RANGE'] = list(self['NUM_WEATHER_EVENTS_RANGE'])
-        self['WEATHER_ID_TO_NAME'] = list(self['WEATHER'].keys())
-        self['WEATHER'].pop('NONE')
+        self['WEATHER_ID_TO_NAME'] = ["NONE"] + list(self['WEATHER'].keys())
 
         return LuxEnvConfig(**self)
 
@@ -202,5 +209,5 @@ default = EnvConfig()
 
 class JuxBufferConfig(NamedTuple):
     MAX_N_UNITS: int = 1000
-    MAX_N_FACTORIES: int = default.MAX_FACTORIES * 2 + 1
+    MAX_N_FACTORIES: int = default.MAX_FACTORIES + 1
     MAX_MAP_SIZE: int = default.map_size

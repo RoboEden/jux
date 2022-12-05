@@ -45,31 +45,35 @@ class Board(NamedTuple):
     lichen_strains: Array  # int[height, width]
     '''
     ownership of lichen by factory id, a simple mask.
-    -1 = no ownership.
+    INT32_MAX = no ownership.
     type: int[height, width]
     '''
 
     units_map: Array  # int[height, width]
     '''
     unit_id (or may be unit_idx) in the cell.
+    INT32_MAX = no unit.
     type: int[height, width]
     '''
 
     factory_map: Array  # int[height, width]
     '''
     factory_id (or may be factory_idx) in the cell.
+    INT32_MAX = no factory.
     type: int[height, width]
     '''
 
     factory_occupancy_map: Array  # int[height, width]
     '''
     factory_id (or may be factory_idx) occupying current cell. Note: each factory occupies 3x3 cells.
+    INT32_MAX = no factory.
     type: int[height, width]
     '''
 
     spawn_masks: Array  # int[height, width]
     '''
     team_id allowed to spawn factory in each cell.
+    INT32_MAX = no team.
     type: int[height, width]
     '''
 
@@ -149,12 +153,13 @@ class Board(NamedTuple):
             xs.append(x)
             ys.append(y)
             factory_id.append(v)
-        factory_map = -jnp.ones(buf_size, dtype=jnp.int32)  # default value is -1
+        factory_map = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)  # default value is INT32_MAX
         factory_id = jnp.array(factory_id, dtype=jnp.int32)
         factory_map = factory_map.at[ys, xs].set(factory_id)
 
-        factory_occupancy_map = jnp.empty(buf_size, jnp.int32)
+        factory_occupancy_map = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)
         factory_occupancy_map = factory_occupancy_map.at[:height, :width].set(lux_board.factory_occupancy_map)
+        factory_occupancy_map = factory_occupancy_map.at[factory_occupancy_map == -1].set(INT32_MAX)
 
         # put unit_id to map
         xs = []
@@ -169,12 +174,12 @@ class Board(NamedTuple):
             xs.append(x)
             ys.append(y)
             unit_id.append(v)
-        units_map = -jnp.ones(buf_size, dtype=jnp.int32)  # default value is -1
+        units_map = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)  # default value is INT32_MAX
         unit_id = jnp.array(unit_id, dtype=jnp.int32)
         units_map = units_map.at[ys, xs].set(unit_id)
 
         # spawn_masks
-        spawn_masks = -jnp.ones(buf_size, dtype=jnp.int32)
+        spawn_masks = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)
         spawn_masks = spawn_masks.at[lux_board.spawn_masks['player_0']].set(0)
         spawn_masks = spawn_masks.at[lux_board.spawn_masks['player_1']].set(1)
 
@@ -210,7 +215,7 @@ class Board(NamedTuple):
         lux_board.lichen = np.array(self.lichen[:self.height, :self.width])
         lux_board.lichen_strains = np.array(self.lichen_strains[:self.height, :self.width])
 
-        ys, xs = (self.units_map[:self.height, :self.width] != -1).nonzero()
+        ys, xs = (self.units_map[:self.height, :self.width] != INT32_MAX).nonzero()
         unit_id = self.units_map[ys, xs]
         ys, xs, unit_id = np.array(ys), np.array(xs), np.array(unit_id)
         lux_units = {**lux_units['player_0'], **lux_units['player_1']}
@@ -218,7 +223,7 @@ class Board(NamedTuple):
         for y, x, uid in zip(ys, xs, unit_id):
             lux_board.units_map.setdefault(f'({x}, {y})', []).append(lux_units[f"unit_{int(uid)}"])
 
-        ys, xs = (self.factory_map[:self.height, :self.width] != -1).nonzero()
+        ys, xs = (self.factory_map[:self.height, :self.width] != INT32_MAX).nonzero()
         factory_id = self.factory_map[ys, xs]
         ys, xs, factory_id = np.array(ys), np.array(xs), np.array(factory_id)
         lux_factories = {**lux_factories['player_0'], **lux_factories['player_1']}
@@ -228,6 +233,7 @@ class Board(NamedTuple):
         }
 
         lux_board.factory_occupancy_map = np.array(self.factory_occupancy_map[:self.height, :self.width])
+        lux_board.factory_occupancy_map[lux_board.factory_occupancy_map == INT32_MAX] = -1
         lux_board.spawn_masks = {
             "player_0": np.array(self.spawn_masks == 0),
             "player_1": np.array(self.spawn_masks == 1),
@@ -257,14 +263,14 @@ class Board(NamedTuple):
     def __eq__(self, __o: "Board") -> bool:
         if not isinstance(__o, Board):
             return False
-        return (self.height == __o.height and self.width == __o.width and self.seed == __o.seed
-                and self.factories_per_team == __o.factories_per_team and self.map == __o.map
-                and jnp.array_equal(self.lichen, __o.lichen)
-                and jnp.array_equal(self.lichen_strains, __o.lichen_strains)
-                and jnp.array_equal(self.units_map, __o.units_map)
-                and jnp.array_equal(self.factory_map, __o.factory_map)
-                and jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map)
-                and jnp.array_equal(self.spawn_masks, __o.spawn_masks))
+        return ((self.height == __o.height) & (self.width == __o.width) & (self.seed == __o.seed)
+                & (self.factories_per_team == __o.factories_per_team) & (self.map == __o.map)
+                & jnp.array_equal(self.lichen, __o.lichen)
+                & jnp.array_equal(self.lichen_strains, __o.lichen_strains)
+                & jnp.array_equal(self.units_map, __o.units_map)
+                & jnp.array_equal(self.factory_map, __o.factory_map)
+                & jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map)
+                & jnp.array_equal(self.spawn_masks, __o.spawn_masks))
 
     @staticmethod
     def get_valid_spawns(height, width, symmetry):
@@ -297,3 +303,9 @@ class Board(NamedTuple):
 
         spawns_masks = spawns_mask0 * 0 + spawns_mask1 * 1 + ~(spawns_mask0 | spawns_mask1) * INT32_MAX
         return spawns_masks
+
+    def update_units_map(self, units) -> 'Board':
+        units_map = jnp.full_like(self.units_map, fill_value=INT32_MAX)
+        pos = units.pos
+        units_map = units_map.at[pos.y, pos.x].set(units.unit_id, mode='drop')
+        return self._replace(units_map=units_map)
