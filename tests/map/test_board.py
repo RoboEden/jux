@@ -1,3 +1,4 @@
+import chex
 import numpy as np
 from luxai2022.env import LuxAI2022
 
@@ -23,7 +24,7 @@ def lux_board_eq(a: LuxBoard, b: LuxBoard) -> bool:
             and np.array_equal(a.spawn_masks['player_1'], b.spawn_masks['player_1']))
 
 
-class TestBoard:
+class TestBoard(chex.TestCase):
 
     def test_from_to_lux(self):
         buf_cfg = JuxBufferConfig()
@@ -46,3 +47,8 @@ class TestBoard:
 
         lux_board_from_jux = jux_board.to_lux(EnvConfig.from_lux(lux.env_cfg), lux.state.factories, lux.state.units)
         assert lux_board_eq(lux_board, lux_board_from_jux)
+
+    @chex.variants(with_jit=True, without_jit=True, with_device=True, without_device=True)
+    def test(self):
+        new_board = self.variant(Board.new, static_argnames=["buf_cfg"])
+        board = new_board(seed=42, env_cfg=EnvConfig(), buf_cfg=JuxBufferConfig())

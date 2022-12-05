@@ -1,7 +1,13 @@
+import os
+
+import chex
 import numpy as np
 
 from jux.config import JuxBufferConfig
-from jux.map_generator.generator import GameMap, LuxGameMap
+from jux.map_generator.generator import GameMap, LuxGameMap, MapType
+from jux.map_generator.symnoise import SymmetryType
+
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.50"
 
 
 def lux_game_map_eq(a: LuxGameMap, b: LuxGameMap) -> bool:
@@ -9,7 +15,7 @@ def lux_game_map_eq(a: LuxGameMap, b: LuxGameMap) -> bool:
             and np.array_equal(a.rubble, b.rubble) and np.array_equal(a.ice, b.ice) and np.array_equal(a.ore, b.ore))
 
 
-class TestGameMap:
+class TestGameMap(chex.TestCase):
 
     def test_init(self):
         buf_cfg = JuxBufferConfig()
@@ -27,3 +33,23 @@ class TestGameMap:
 
         assert lux_game_map_eq(game_map.to_lux(), lux_game_map)
         assert game_map == GameMap.from_lux((game_map.to_lux()), buf_cfg)
+
+    @chex.variants(with_jit=True, without_jit=True, with_device=True, without_device=True)
+    def test_map(self):
+        seed = 42
+        map_type = MapType.MOUNTAIN
+        symmetry = SymmetryType.HORIZONTAL
+        width = 48
+        height = 48
+        # config.update("jax_disable_jit", True)
+        map_generator = self.variant(
+            GameMap.random_map,
+            static_argnames=("width", "height"),
+        )
+        map_grid = map_generator(
+            seed=seed,
+            map_type=map_type,
+            symmetry=symmetry,
+            width=width,
+            height=height,
+        )

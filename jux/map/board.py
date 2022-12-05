@@ -1,14 +1,17 @@
 from typing import Dict, NamedTuple, Type
 
+import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import Array
+from jax import Array, lax
 from luxai2022.env import Factory as LuxFactory
 from luxai2022.env import Unit as LuxUnit
 from luxai2022.map.board import Board as LuxBoard
 
-from jux.config import JuxBufferConfig, LuxEnvConfig
-from jux.map_generator.generator import GameMap
+from jux.config import EnvConfig, JuxBufferConfig, LuxEnvConfig
+from jux.map_generator.generator import GameMap, MapType, SymmetryType
+
+INT32_MAX = jnp.iinfo(jnp.int32).max
 
 
 class Board(NamedTuple):
@@ -71,6 +74,58 @@ class Board(NamedTuple):
     '''
 
     # spawns is duplicated with spawn_masks, please use spawn_masks instead.
+
+    @classmethod
+    def new(cls, seed: int, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig):
+        height = buf_cfg.MAX_MAP_SIZE
+        width = buf_cfg.MAX_MAP_SIZE
+        key = jax.random.PRNGKey(seed)
+        key, subkey = jax.random.split(key)
+        map_type = jax.random.choice(
+            key=subkey,
+            a=jnp.array([MapType.CAVE, MapType.MOUNTAIN]),
+        )
+        key, subkey = jax.random.split(key)
+        symmetry = jax.random.choice(
+            key=subkey,
+            a=jnp.array([SymmetryType.HORIZONTAL, SymmetryType.VERTICAL]),
+        )
+        map = GameMap.random_map(
+            seed=seed,
+            symmetry=symmetry,
+            map_type=map_type,
+            width=width,
+            height=height,
+        )
+        key, subkey = jax.random.split(key)
+        factories_per_team = jax.random.randint(
+            key=subkey,
+            shape=(1, ),
+            minval=env_cfg.MIN_FACTORIES,
+            maxval=env_cfg.MAX_FACTORIES + 1,
+        )[0]
+
+        lichen = jnp.zeros(shape=(height, width), dtype=jnp.int32)
+        lichen_strains = -jnp.ones(shape=(height, width), dtype=int)
+        units_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
+
+        factory_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
+        factory_occupancy_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
+        spawn_masks = cls.get_valid_spawns(height, width, symmetry)
+
+        return cls(
+            height=height,
+            width=width,
+            seed=seed,
+            factories_per_team=factories_per_team,
+            map=map,
+            lichen=lichen,
+            lichen_strains=lichen_strains,
+            units_map=units_map,
+            factory_map=factory_map,
+            factory_occupancy_map=factory_occupancy_map,
+            spawn_masks=spawn_masks,
+        )
 
     @classmethod
     def from_lux(cls: Type['Board'], lux_board: LuxBoard, buf_cfg: JuxBufferConfig) -> "Board":
@@ -210,3 +265,35 @@ class Board(NamedTuple):
                 and jnp.array_equal(self.factory_map, __o.factory_map)
                 and jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map)
                 and jnp.array_equal(self.spawn_masks, __o.spawn_masks))
+
+    @staticmethod
+    def get_valid_spawns(height, width, symmetry):
+        xx, yy = np.mgrid[:int(width), :int(height)]
+
+        def _horizontal0():
+            spawns_mask = yy < (height - 2) / 2
+            return spawns_mask
+
+        def _vertical0():
+            spawns_mask = xx < (width - 2) / 2
+            return spawns_mask
+
+        def _horizontal1():
+            spawns_mask = yy >= (height + 2) / 2
+            return spawns_mask
+
+        def _vertical1():
+            spawns_mask = xx >= (width + 2) / 2
+            return spawns_mask
+
+        spawns_mask0 = lax.switch(
+            symmetry,
+            [_horizontal0, _vertical0],
+        )
+        spawns_mask1 = lax.switch(
+            symmetry,
+            [_horizontal1, _vertical1],
+        )
+
+        spawns_masks = spawns_mask0 * 0 + spawns_mask1 * 1 + ~(spawns_mask0 | spawns_mask1) * INT32_MAX
+        return spawns_masks
