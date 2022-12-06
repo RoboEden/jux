@@ -33,7 +33,6 @@ def batch_out_of_leaf(tree: T, axis=0) -> List[T]:
     Returns:
         list: a list of pytree with the same structure as tree, but the batch dimension in leaves is removed.
     """
-    jax.tree_util.tree_flatten(tree)
     leaves, structure = jax.tree_util.tree_flatten(tree)
 
     # move batch dimension to the front

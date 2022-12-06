@@ -111,9 +111,6 @@ class Unit(NamedTuple):
         lux_unit.action_queue = self.action_queue.to_lux()
         return lux_unit
 
-    # def __eq__(self, __o: object) -> bool:
-    #     return isinstance(__o, Unit) and self.unit_id == __o.unit_id and self.team_id == __o.team_id and self.unit_type == __o.unit_type
-
     def next_action(self) -> Tuple['Unit', UnitAction]:
         act, new_action_queue = self.action_queue.pop()
         act = jax.lax.cond(
@@ -121,6 +118,7 @@ class Unit(NamedTuple):
             lambda: UnitAction(jnp.zeros(5, dtype=jnp.int32)),
             lambda: act,
         )
+        # TODO: handle repeat action
         return self._replace(action_queue=new_action_queue), act
 
     def is_heavy(self) -> Union[bool, Array]:

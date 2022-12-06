@@ -17,10 +17,23 @@ def code2color(code):
 
 
 @jax.jit
-def flood_fill(mask):
+def flood_fill(mask: jax.Array) -> jax.Array:
+    """
+    A flood fill algorithm that returns the color of each cell.
+
+    Args:
+        mask (Array): bool[H, W] that stores the barriers on the map. False
+            means no barrier, True means barrier.
+
+    Returns:
+        int[2, H, W]: the color of each cell. For all cells with the same color,
+            they are connected. The color is represented by the index of the
+            cell that is the smallest in each connected component.
+    """
     H, W = mask.shape
     map_size = jnp.array([H, W], dtype=jnp.int32)
 
+    # 1. prepare neighbor index list
     ij = jnp.mgrid[:H, :W]
     delta_ij = jnp.array([
         [0, 0],
@@ -37,9 +50,34 @@ def flood_fill(mask):
     # barrier only connects itself.
     neighbor_ij = jnp.where(mask[None], ij, neighbor_ij)
 
-    # on cell connects to barriers.
+    # no cell connects to barriers.
     neighbor_is_mask = mask[neighbor_ij[:, 0], neighbor_ij[:, 1]]  # int[5, H, W]
     neighbor_ij = jnp.where(neighbor_is_mask[:, None], ij, neighbor_ij)  # int[5, 2, H, W]
+
+    # 2.run the flood fill algorithm
+    color = _flood_fill(neighbor_ij)
+
+    return color
+
+
+def _flood_fill(neighbor_ij: jax.Array) -> jax.Array:
+    """
+    A flood fill algorithm that returns the color of each cell.
+
+    Args:
+        neighbor_ij (Array): int[N, 2, H, W] that stores the index of the N
+            neighbors of each cell. If the number of a cell is less than N, you
+            may pad it with its only index. It has no harm to let one cell
+            adjacent to itself. It is user's responsibility to make sure that
+            every connected component is strongly connected. If there is a path
+            from a to b through the neighbor list in `neighbor_ij`, then there
+            must be a path from b to a.
+
+    Returns:
+        int[2, H, W]: the color of each cell. For all cells with the same color,
+            they are connected. The color is represented by the index of the
+            cell that is the smallest in each connected component.
+    """
 
     def _cond(args):
         color, new_color = args
@@ -57,6 +95,8 @@ def flood_fill(mask):
         new_color = new_color[:, new_color[0], new_color[1]]
         return color, new_color
 
+    H, W = neighbor_ij.shape[-2:]
+    ij = jnp.mgrid[:H, :W]
     color, new_color = (ij - 1, ij)  # make sure color != new_color, so the loop will start
     color, _ = jax.lax.while_loop(_cond, _body, (color, new_color))
     return color

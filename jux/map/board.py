@@ -110,7 +110,7 @@ class Board(NamedTuple):
         )[0]
 
         lichen = jnp.zeros(shape=(height, width), dtype=jnp.int32)
-        lichen_strains = -jnp.ones(shape=(height, width), dtype=int)
+        lichen_strains = jnp.full(shape=(height, width), fill_value=INT32_MAX)
         units_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
 
         factory_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
@@ -136,11 +136,12 @@ class Board(NamedTuple):
         buf_size = (buf_cfg.MAX_MAP_SIZE, buf_cfg.MAX_MAP_SIZE)
         height, width = lux_board.height, lux_board.width
 
-        lichen = jnp.empty(buf_size, jnp.int32)
+        lichen = jnp.zeros(shape=(height, width), dtype=jnp.int32)
         lichen = lichen.at[:height, :width].set(lux_board.lichen)
 
-        lichen_strains = jnp.empty(buf_size, jnp.int32)
+        lichen_strains = jnp.full(shape=(height, width), fill_value=INT32_MAX, dtype=jnp.int32)
         lichen_strains = lichen_strains.at[:height, :width].set(lux_board.lichen_strains)
+        lichen_strains = lichen_strains.at[lichen_strains == -1].set(INT32_MAX)
 
         # put factories id to map
         lux_board.factory_map: Dict[str, 'LuxFactory']
@@ -213,7 +214,10 @@ class Board(NamedTuple):
         lux_board.factories_per_team = int(self.factories_per_team)
         lux_board.map = self.map.to_lux()
         lux_board.lichen = np.array(self.lichen[:self.height, :self.width])
-        lux_board.lichen_strains = np.array(self.lichen_strains[:self.height, :self.width])
+
+        lichen_strains = self.lichen_strains[:self.height, :self.width]
+        lichen_strains = lichen_strains.at[lichen_strains == INT32_MAX].set(-1)
+        lux_board.lichen_strains = np.array(lichen_strains)
 
         ys, xs = (self.units_map[:self.height, :self.width] != INT32_MAX).nonzero()
         unit_id = self.units_map[ys, xs]

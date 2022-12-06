@@ -539,6 +539,13 @@ class State(NamedTuple):
         self = self._handle_factory_water_actions(factory_actions)
 
         # TODO: update lichen
+        new_lichen = self.board.lichen - 1
+        new_lichen = new_lichen.clip(0, self.env_cfg.MAX_LICHEN_PER_TILE)
+        new_lichen_strains = jnp.where(new_lichen == 0, INT32_MAX, self.board.lichen_strains)
+        self = self._replace(board=self.board._replace(
+            lichen=new_lichen,
+            lichen_strains=new_lichen_strains,
+        ))
 
         # resources refining
         factory = self.factories.refine_step(self.env_cfg)
@@ -775,7 +782,6 @@ class State(NamedTuple):
         factory_id_in_pos = self.board.factory_occupancy_map[y, x]
         factory_player_id = self.factory_id2idx.at[factory_id_in_pos].get(mode='fill', fill_value=INT32_MAX)[..., 0]
         is_dig = is_dig & (factory_player_id == INT32_MAX)
-        self.factory_id2idx
 
         # 2. execute dig action
         new_power = jnp.where(is_dig, units.power - power_req, units.power)
@@ -991,7 +997,175 @@ class State(NamedTuple):
         return self
 
     def _handle_factory_water_actions(self, factory_actions: Array):
-        # TODO
+        # 1. prepare lichen connection info
+        # The key idea here is to prepare a list of neighbors for each cell it connects to, when watered.
+        # neighbor_ij is a 4x2xHxW array, where the first dimension is the neighbors (4 at most), the second dimension is the 2 coordinates.
+        H, W = self.board.lichen_strains.shape
+
+        ij = jnp.mgrid[:H, :W]
+        delta_ij = jnp.array([
+            [-1, 0],
+            [0, 1],
+            [1, 0],
+            [0, -1],
+        ])  # int[2, H, W]
+        neighbor_ij = delta_ij[..., None, None] + ij[None, ...]  # int[4, 2, H, W]
+
+        # handle map boundary.
+        neighbor_ij = neighbor_ij.at[0, 0, 0, :].set(0)
+        neighbor_ij = neighbor_ij.at[1, 1, :, W - 1].set(W - 1)
+        neighbor_ij = neighbor_ij.at[2, 0, H - 1, :].set(H - 1)
+        neighbor_ij = neighbor_ij.at[3, 1, :, 0].set(0)
+
+        # calculate cell connections.
+        # 1.1 non-factory cells
+        neighbor_lichen_strain = self.board.lichen_strains[neighbor_ij[:, 0], neighbor_ij[:, 1]]  # int[4, H, W]
+        neighbor_rubble = self.board.rubble[neighbor_ij[:, 0], neighbor_ij[:, 1]]  # int[4, H, W]
+        neighbor_is_lichen = neighbor_lichen_strain != INT32_MAX
+
+        # 1.1.1 When center is a lichen cell, and
+        connect_cond = (self.board.lichen_strains != INT32_MAX) & (  # bool[4, H, W]
+            # neighbor has the same lichen strain, or
+            (neighbor_lichen_strain == self.board.lichen_strains) |
+            # neighbor is not lichen and has 0 rubble, and center has enough lichen, then neighbor is connected to center.
+            (~neighbor_is_lichen & (neighbor_rubble == 0) & (self.board.lichen >= self.env_cfg.MIN_LICHEN_TO_SPREAD)))
+
+        # 1.1.2 when center is not a lichen and have 0 rubble, and neighbor is a lichen, then center is connected to neighbor.
+        connect_cond = connect_cond | (
+            (self.board.lichen_strains == INT32_MAX) & (self.board.rubble == 0) & neighbor_is_lichen)  # bool[4, H, W]
+
+        # 1.1.3 when a non-lichen cell connects two different strains, then it connects to nothing.
+        center_connects_two_different_strains = (self.board.lichen_strains == INT32_MAX) & ( \
+            ((neighbor_lichen_strain[0] != neighbor_lichen_strain[1]) & neighbor_is_lichen[0] & neighbor_is_lichen[1]) | \
+            ((neighbor_lichen_strain[0] != neighbor_lichen_strain[2]) & neighbor_is_lichen[0] & neighbor_is_lichen[2]) | \
+            ((neighbor_lichen_strain[0] != neighbor_lichen_strain[3]) & neighbor_is_lichen[0] & neighbor_is_lichen[3]) | \
+            ((neighbor_lichen_strain[1] != neighbor_lichen_strain[2]) & neighbor_is_lichen[1] & neighbor_is_lichen[2]) | \
+            ((neighbor_lichen_strain[1] != neighbor_lichen_strain[3]) & neighbor_is_lichen[1] & neighbor_is_lichen[3]) | \
+            ((neighbor_lichen_strain[2] != neighbor_lichen_strain[3]) & neighbor_is_lichen[2] & neighbor_is_lichen[3]) \
+        )
+        connect_cond = connect_cond & ~center_connects_two_different_strains
+        # and its neighbors do not connects to it either.
+        shift_up = [  # bool[4, H, W]
+            center_connects_two_different_strains[1:, :],
+            jnp.zeros((1, W), dtype=jnp.bool_),
+        ]
+        shift_up = jnp.concatenate(shift_up, axis=0)
+        connect_cond = connect_cond.at[2].min(~shift_up)
+
+        shift_down = [
+            jnp.zeros((1, W), dtype=jnp.bool_),
+            center_connects_two_different_strains[:-1, :],
+        ]
+        shift_down = jnp.concatenate(shift_down, axis=0)
+        connect_cond = connect_cond.at[0].min(~shift_down)
+
+        shift_right = [
+            jnp.zeros((H, 1), dtype=jnp.bool_),
+            center_connects_two_different_strains[:, :-1],
+        ]
+        shift_right = jnp.concatenate(shift_right, axis=1)
+        connect_cond = connect_cond.at[3].min(~shift_right)
+
+        shift_left = [
+            center_connects_two_different_strains[:, 1:],
+            jnp.zeros((H, 1), dtype=jnp.bool_),
+        ]
+        shift_left = jnp.concatenate(shift_left, axis=1)
+        connect_cond = connect_cond.at[1].min(~shift_left)
+
+        # 1.2 connect factories to their lichen. center cell connects to edge cells, and edge cells connect to zero rubble cell.
+        # TODO: adapt to 4x3 x cells in lux v1.1.1
+        """ There are tree kinds of cells.
+        f: factory center
+        e: edge
+        x: the cells that are connect to edge and to be watered
+        c: the corner
+             x
+           - - -
+          |c e c|
+        x |e f e| x
+          |c e c|
+           - - -
+             x
+        """
+
+        # 1.2.1 all cells within the same factory connect to each other
+        neighbor_factory_id = self.board.factory_occupancy_map.at[(
+            neighbor_ij[:, 0],
+            neighbor_ij[:, 1],
+        )].get(mode='fill', fill_value=INT32_MAX)
+
+        connect_cond = connect_cond | ((self.board.factory_occupancy_map == neighbor_factory_id) &
+                                       (self.board.factory_occupancy_map != INT32_MAX))
+
+        # 1.2.2 edge cells connect to x cells
+        edge_pos = Position(self.factories.pos.pos[..., None, :] + delta_ij[:, ::-1])  # int[2, F, 4, 2]
+
+        x_ij = neighbor_ij.at[jnp.arange(4), :, edge_pos.y, edge_pos.x]
+        x_ij = x_ij.get(mode='fill', fill_value=INT32_MAX)  # int[2, F, 4, 2]
+
+        x_rubble = self.board.rubble.at[x_ij[..., 0], x_ij[..., 1]]
+        x_rubble = x_rubble.get(mode='fill', fill_value=INT32_MAX)  # int[2, F, 4]
+
+        # edge cells connect to x cells if x cells have 0 rubble and x cell have
+        # no lichen or x cell has the same lichen strain current factory id.
+        x_strains = self.board.lichen_strains.at[x_ij[..., 0], x_ij[..., 1]].get(mode='fill', fill_value=INT32_MAX)
+        x_connect_cond = (x_rubble == 0 & ((x_strains == INT32_MAX) | (x_strains == self.factories.unit_id[..., None])))
+        connect_cond = connect_cond.at[(
+            jnp.arange(4),
+            edge_pos.y,
+            edge_pos.x,
+        )].set(x_connect_cond, mode='drop')  # bool[4, H, W]
+
+        # 1.2.3 x cells connect back to edge cells
+        connect_cond = connect_cond.at[(
+            jnp.array([2, 3, 0, 1]),
+            x_ij[..., 0],
+            x_ij[..., 1],
+        )].set(x_connect_cond, mode='drop')
+
+        # 1.3 apply connect_cond to neighbor_ij
+        neighbor_ij = jnp.where(connect_cond[:, None], neighbor_ij, ij)  # bool[4, 2, H, W]
+
+        # 2. run flood fill to cluster cells
+        color = jux.map_generator.flood._flood_fill(neighbor_ij)
+        cmp_cnt = jux.map_generator.flood.component_sum(1, color)  # int[H, W]
+
+        # -9 for the factory occupied cells
+        grow_lichen_size = cmp_cnt[self.factories.pos.y, self.factories.pos.x] - 9  # int[2, F]
+        water_cost = jnp.ceil(grow_lichen_size / self.env_cfg.LICHEN_WATERING_COST_FACTOR).astype(jnp.int32) + 1
+
+        # 3. perform action
+        is_water = (factory_actions == FactoryAction.WATER) & (self.factories.cargo.water >= water_cost)
+
+        # water cost
+        water_cost = jnp.where(is_water, water_cost, 0)
+        new_stock = self.factories.cargo.stock.at[..., ResourceType.water].add(-water_cost)
+
+        # lichen growth
+        delta_lichen = jnp.zeros((H, W), dtype=jnp.int32)  # int[H, W]
+        factory_color = color.at[:, self.factories.pos.y,
+                                 self.factories.pos.x].get(mode='fill', fill_value=INT32_MAX)  # int[2, 2, F]
+        delta_lichen = delta_lichen.at[factory_color[0], factory_color[1]].add(is_water, mode='drop')
+        delta_lichen = delta_lichen.at[color[0], color[1]].get(mode='fill', fill_value=0)
+        delta_lichen = jnp.where(self.board.factory_occupancy_map == INT32_MAX, delta_lichen, 0)
+        new_lichen = self.board.lichen + delta_lichen * 2
+
+        # lichen strain
+        lichen_strain = jnp.zeros((H, W), dtype=jnp.int32)  # int[H, W]
+        lichen_strain = lichen_strain.at[factory_color[0], factory_color[1]].set(self.factories.unit_id, mode='drop')
+        lichen_strain = lichen_strain.at[color[0], color[1]].get(mode='fill', fill_value=0)
+        new_lichen_strains = jnp.where(delta_lichen > 0, lichen_strain, self.board.lichen_strains)
+
+        # 4. update self
+        self = self._replace(
+            board=self.board._replace(
+                lichen=new_lichen,
+                lichen_strains=new_lichen_strains,
+            ),
+            factories=self.factories._replace(cargo=UnitCargo(new_stock)),
+        )
+
         return self
 
     def _mars_quake(self) -> 'State':
