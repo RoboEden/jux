@@ -132,17 +132,6 @@ def get_weather_cfg(weather_cfg, current_weather: Weather):
     )
 
 
-def get_weather_time_range(current_weather: Weather, weather):
-    time_ranges = jnp.array((
-        (INT32_MAX, INT32_MAX),
-        weather.MARS_QUAKE.TIME_RANGE,
-        weather.COLD_SNAP.TIME_RANGE,
-        weather.DUST_STORM.TIME_RANGE,
-        weather.SOLAR_FLARE.TIME_RANGE,
-    ))
-    return time_ranges[current_weather]
-
-
 def generate_weather_schedule(key: jax.random.PRNGKey, env_cfg: Any):
     # randomly generate 3-5 events, each lasting 20 turns
     # no event can overlap another
@@ -155,12 +144,19 @@ def generate_weather_schedule(key: jax.random.PRNGKey, env_cfg: Any):
     # TODO - make a smarter algorithm to speed up the generation here
     available_times = jnp.arange(env_cfg.max_episode_length) < (env_cfg.max_episode_length - 30)
     schedule = jnp.zeros(env_cfg.max_episode_length, dtype=jnp.int32)
+    time_ranges = jnp.array((
+        (INT32_MAX, INT32_MAX),
+        env_cfg.WEATHER.MARS_QUAKE.TIME_RANGE,
+        env_cfg.WEATHER.COLD_SNAP.TIME_RANGE,
+        env_cfg.WEATHER.DUST_STORM.TIME_RANGE,
+        env_cfg.WEATHER.SOLAR_FLARE.TIME_RANGE,
+    ))
 
     def fori_body_fun(i, val1):
         key, available_times, schedule = val1
         key, subkey = jax.random.split(key)
         weather_type = jax.random.randint(key=subkey, shape=(), minval=1, maxval=len(Weather))
-        weather_time_range = get_weather_time_range(weather_type, env_cfg.WEATHER)
+        weather_time_range = time_ranges[weather_type]
 
         def _while_body_fun(val2):
             key, requested_time = val2
@@ -172,19 +168,19 @@ def generate_weather_schedule(key: jax.random.PRNGKey, env_cfg: Any):
                                           minval=weather_time_range[0],
                                           maxval=weather_time_range[1] + 1)
             requested_time = jnp.arange(env_cfg.max_episode_length)
+
             requested_time = (requested_time >= start_time) & (requested_time < start_time + duration)
             return key, requested_time
 
         def _cond_func(val2):
-            key, requested_time = val2
-            return ~(requested_time & available_times).any()
+            _, requested_time = val2
+            return ~((requested_time & available_times) == requested_time).all()
 
-        requested_time = jnp.zeros_like(available_times)
+        requested_time = jnp.ones_like(available_times)
         key, requested_time = lax.while_loop(cond_fun=_cond_func,
                                              body_fun=_while_body_fun,
                                              init_val=(key, requested_time))
-
-        available_times = available_times | requested_time
+        available_times = available_times & (~requested_time)
         schedule = schedule + requested_time * weather_type
         return key, available_times, schedule
 
