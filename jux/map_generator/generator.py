@@ -124,9 +124,9 @@ def cave(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: Sym
     seed = noise.seed
     key = jax.random.PRNGKey(seed)
     key, subkey = jax.random.split(key)
-    mask = jax.random.randint(key=subkey, minval=0, maxval=6, shape=(height, width))
+    mask = jax.random.randint(key=subkey, minval=0, maxval=3, shape=(height, width))
     mask = (mask >= 1).astype(jnp.int32)
-    mask = symmetrize(mask, symmetry)
+    # mask = symmetrize(mask, symmetry)
 
     # Build clumps of ones (will be interior of caves)
     for i in range(3):
@@ -142,14 +142,14 @@ def cave(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: Sym
     # Create cave wall
     mask = (mask + maximum_filter(mask)).astype(jnp.int32)
     # fix bug where filter will cause it to be not symmetric...
-    mask = symmetrize(mask, symmetry)
+    # mask = symmetrize(mask, symmetry)
 
     # Make some noisy rubble
     x = jnp.linspace(0, 1, width)
     y = jnp.linspace(0, 1, height)
     rubble = noise.noise(x, y) * 50 + 50
     rubble = jnp.round(rubble)
-    rubble = rubble * (mask != 1) + rubble // 5 * (mask == 1)  # Cave walls
+    rubble = rubble * (mask != 1) + (rubble // 5) * (mask == 1)  # Cave walls
     rubble = rubble * (mask != 0)  # Interior of cave
 
     # Make some noisy ice, most ice is on cave edges
@@ -186,7 +186,7 @@ def craters(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: 
     seed = noise.seed
     key = jax.random.PRNGKey(seed)
     key, subkey = jax.random.split(key)
-    num_craters = jax.random.randint(key=subkey, shape=(1, ), minval=min_craters, maxval=max_craters + 1)[0]
+    num_craters = jax.random.randint(key=subkey, shape=(), minval=min_craters, maxval=max_craters + 1)
 
     # Mask = how many craters have hit the spot. When it symmetrizes, it will divide by 2.
     mask = jnp.zeros((height, width))
@@ -224,8 +224,8 @@ def craters(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: 
 
     mask = mask.astype(jnp.float32)
 
-    mask = symmetrize(mask, symmetry)
-    ice_mask = symmetrize(ice_mask, symmetry)
+    # mask = symmetrize(mask, symmetry)
+    # ice_mask = symmetrize(ice_mask, symmetry)
 
     rubble = (jnp.minimum(mask, 1) * 90 + 10) * noise.noise(x, y + 100, frequency=3)
     ice = noise.noise(x, y - 100)
@@ -234,7 +234,7 @@ def craters(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: 
     ice = jnp.round(50 * ice + 50).astype(jnp.bool_)
 
     ore = jnp.minimum(mask, 1) * noise.noise(x, y + 100, frequency=3)
-    ore = ore * (ore < jnp.percentile(ore, 95))
+    ore = ore * (ore >= jnp.percentile(ore, 95))
     ore = jnp.round(50 * ore + 50).astype(jnp.bool_)
     return GameMap(
         rubble=rubble,
@@ -337,11 +337,11 @@ def mountain(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise:
     y, x = random_coor[1, :], random_coor[0, :]
     f = f.at[y, x].add(-1, mode="drop")
 
-    f = symmetrize(f, symmetry)
+    # f = symmetrize(f, symmetry)
 
     # mask will be floats in [0, 1], where 0 = no mountain, 1 = tallest peak
     mask = solve_poisson(f)
-    mask = symmetrize(mask, symmetry)  # in case of floating point errors
+    # mask = symmetrize(mask, symmetry)  # in case of floating point errors
     x = jnp.linspace(0, 1, width)
     y = jnp.linspace(0, 1, height)
     mask = mask * (5 + noise.noise(x, y, frequency=3))
@@ -366,22 +366,10 @@ def mountain(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise:
     cond = Lap * (2 * Lap - jnp.sqrt(4 * Lap**2 - det)) / det - 0.25  # ratio of eigenvalues
     cond = jnp.abs(cond)  # should already be real except for floating point errors
     cond = jnp.maximum(cond, 1 / cond)
-    cond = symmetrize(cond, symmetry)  # for floating point errors
+    # cond = symmetrize(cond, symmetry)  # for floating point errors
 
     bdry = jnp.abs(cond > 20) & (f == 0)
     color = flood_fill(bdry)
-    # cmp_sum = jnp.zeros_like(cond)
-    # cmp_sum = cmp_sum.at[color[0], color[1]].add(mask)
-    # cmp_sum = cmp_sum[color[0], color[1]]
-
-    # cmp_cnt = jnp.zeros_like(cond)
-    # cmp_cnt = cmp_cnt.at[color[0], color[1]].add(1)
-    # cmp_cnt = cmp_cnt[color[0], color[1]]
-
-    # cmp_mean = cmp_sum / cmp_cnt
-    # boundry_mean = jnp.sum(mask * bdry) / jnp.sum(bdry)
-    # mask_mask = cmp_mean < boundry_mean / 2.5
-    # mask = mask * (~mask_mask)
     cmp_sum = component_sum(mask, color)
     cmp_cnt = component_sum(1, color)
     cmp_mean = cmp_sum / cmp_cnt
@@ -393,7 +381,8 @@ def mountain(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise:
     mask = mask * (~mask_mask)
     mask = mask * (~bdry)
 
-    mask = mask * (mask <= 0) + ((mask * (mask > 0) - jnp.amin(mask * (mask > 0))))
+    positive_amin = jnp.amin(jnp.where(mask > 0, mask, jnp.inf))
+    mask = jnp.where(mask > 0, mask - positive_amin, mask)
     mask = mask - jnp.amin(mask)
     mask = mask / jnp.amax(mask)
 
@@ -401,14 +390,14 @@ def mountain(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise:
     ice = (100 * mask).round()
     mid_mask = (ice < jnp.percentile(ice, 50)) & (ice > jnp.percentile(ice, 48)) | (ice < jnp.percentile(
         ice, 20)) & (ice > jnp.percentile(ice, 0))
-    ice = ice * (ice >= jnp.percentile(ice, 99))
+    ice = ice * (ice >= jnp.percentile(ice, 98))
     ice = ice != 0
     ice = ice * (~mid_mask) + mid_mask
     ice = ice.astype(jnp.bool_)
 
     ore = (100 * mask).round()
     mid_mask = (ore < jnp.percentile(ore, 62)) & (ore > jnp.percentile(ore, 60))
-    ore = (ore >= jnp.percentile(ore, 83.5)) & (ore <= jnp.percentile(ore, 84))
+    ore = (ore >= jnp.percentile(ore, 83.5)) & (ore <= jnp.percentile(ore, 84.5))
     ore = ore != 0
     ore = ore * (~mid_mask) + mid_mask
     ore = ore.astype(jnp.bool_)
@@ -479,11 +468,11 @@ def island(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: S
 
     mask = mask.at[yy, xx].set(mask[new_yy, new_xx])
 
-    mask = symmetrize(mask, symmetry)
+    # mask = symmetrize(mask, symmetry)
 
     rubble = noise.noise(x, y - 100, frequency=3) * 50 + 50
     zero_mask = mask == 0
-    rubble = rubble * zero_mask // 20 + rubble * (~zero_mask)
+    rubble = rubble // 20 * zero_mask + rubble * (~zero_mask)
 
     # Unsure what to do about ice, ore right now. Place in pockets on islands?
     ice = noise.noise(x, y + 200, frequency=10)**2 * 100
