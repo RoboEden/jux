@@ -74,27 +74,27 @@ class UnitAction(NamedTuple):
         return self.code[..., 2]
 
     @classmethod
-    def move(cls, direction: Direction, repeat: bool = False) -> "UnitAction":
-        return cls(jnp.array([UnitActionType.MOVE, direction, 1, 0, repeat], jnp.int32))
+    def move(cls, direction: Direction, repeat: int = 0) -> "UnitAction":
+        return cls(jnp.array([UnitActionType.MOVE, direction, 0, 0, repeat], jnp.int32))
 
     @classmethod
-    def transfer(cls, direction: Direction, resource: ResourceType, amount: int, repeat: bool = False) -> "UnitAction":
+    def transfer(cls, direction: Direction, resource: ResourceType, amount: int, repeat: int = 0) -> "UnitAction":
         return cls(jnp.array([UnitActionType.TRANSFER, direction, resource, amount, repeat], jnp.int32))
 
     @classmethod
-    def pickup(cls, resource: ResourceType, amount: int, repeat: bool = False) -> "UnitAction":
+    def pickup(cls, resource: ResourceType, amount: int, repeat: int = 0) -> "UnitAction":
         return cls(jnp.array([UnitActionType.PICKUP, 0, resource, amount, repeat], jnp.int32))
 
     @classmethod
-    def dig(cls, repeat: bool = False) -> "UnitAction":
+    def dig(cls, repeat: int = 0) -> "UnitAction":
         return cls(jnp.array([UnitActionType.DIG, 0, 0, 0, repeat], jnp.int32))
 
     @classmethod
-    def self_destruct(cls, repeat: bool = False) -> "UnitAction":
+    def self_destruct(cls, repeat: int = 0) -> "UnitAction":
         return cls(jnp.array([UnitActionType.SELF_DESTRUCT, 0, 0, 0, repeat], jnp.int32))
 
     @classmethod
-    def recharge(cls, amount, repeat: bool = False) -> "UnitAction":
+    def recharge(cls, amount: int, repeat: int = 0) -> "UnitAction":
         """Recharge the unit's battery until the given amount.
 
         Args:

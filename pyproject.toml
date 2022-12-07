@@ -18,8 +18,8 @@
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ]
     dependencies = [
-        "luxai2022==1.0.6",
-        "jax[cuda]~=0.3.24",
+        "luxai2022==1.1.1",
+        "jax[cuda]~=0.3.25",
         "chex",
     ]
     dynamic = ["version"]

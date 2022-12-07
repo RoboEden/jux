@@ -27,12 +27,12 @@ class TestActions:
 
     def test_unit_actions(self):
         actions = [
-            UnitAction.move(Direction.UP, repeat=True),
-            UnitAction.transfer(Direction.LEFT, ResourceType.ice, 10, repeat=True),
-            UnitAction.pickup(ResourceType.metal, 10, repeat=False),
-            UnitAction.dig(True),
-            UnitAction.self_destruct(False),
-            UnitAction.recharge(20, False),
+            UnitAction.move(Direction.UP, repeat=10),
+            UnitAction.transfer(Direction.LEFT, ResourceType.ice, 10, repeat=0),
+            UnitAction.pickup(ResourceType.metal, 10, repeat=-1),
+            UnitAction.dig(3),
+            UnitAction.self_destruct(4),
+            UnitAction.recharge(20, -1),
         ]
         for act in actions:
             assert act == UnitAction.from_lux(act.to_lux())

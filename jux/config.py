@@ -25,6 +25,7 @@ class UnitConfig(NamedTuple):
     DIG_LICHEN_REMOVED: int = 10
     SELF_DESTRUCT_COST: int = 10
     RUBBLE_AFTER_DESTRUCTION: int = 1
+    ACTION_QUEUE_POWER_COST: int = 1
 
     @classmethod
     def from_lux(cls, lux_unit_config: LuxUnitConfig) -> "UnitConfig":
@@ -54,11 +55,6 @@ class EnvConfig(NamedTuple):
     CYCLE_LENGTH: int = 50
     DAY_LENGTH: int = 30
     UNIT_ACTION_QUEUE_SIZE: int = 20  # when set to 1, then no action queue is used
-
-    UNIT_ACTION_QUEUE_POWER_COST: Tuple[int, int] = (
-        1,  # UnitType.LIGHT
-        10,  # UnitType.HEAVY
-    )
 
     MAX_RUBBLE: int = 100
     FACTORY_RUBBLE_AFTER_DESTRUCTION: int = 50
@@ -109,6 +105,7 @@ class EnvConfig(NamedTuple):
             DIG_RESOURCE_GAIN=2,
             DIG_LICHEN_REMOVED=10,
             RUBBLE_AFTER_DESTRUCTION=1,
+            ACTION_QUEUE_POWER_COST=1,
         ),
         # UnitType.HEAVY
         UnitConfig(
@@ -126,6 +123,7 @@ class EnvConfig(NamedTuple):
             DIG_RESOURCE_GAIN=20,
             DIG_LICHEN_REMOVED=100,
             RUBBLE_AFTER_DESTRUCTION=10,
+            ACTION_QUEUE_POWER_COST=10,
         ),
     )
 
@@ -169,10 +167,6 @@ class EnvConfig(NamedTuple):
     def from_lux(cls, lux_env_config: LuxEnvConfig):
         lux_env_config = copy(lux_env_config)
 
-        lux_env_config.UNIT_ACTION_QUEUE_POWER_COST = (
-            lux_env_config.UNIT_ACTION_QUEUE_POWER_COST['LIGHT'],
-            lux_env_config.UNIT_ACTION_QUEUE_POWER_COST['HEAVY'],
-        )
         lux_env_config.ROBOTS = (
             UnitConfig.from_lux(lux_env_config.ROBOTS['LIGHT']),
             UnitConfig.from_lux(lux_env_config.ROBOTS['HEAVY']),
@@ -189,10 +183,6 @@ class EnvConfig(NamedTuple):
         self = jax.tree_map(lambda x: x.item() if isinstance(x, jax.Array) else x, self)
         self: Dict[str, Any] = self._asdict()
 
-        self['UNIT_ACTION_QUEUE_POWER_COST'] = dict(
-            LIGHT=self['UNIT_ACTION_QUEUE_POWER_COST'][0],
-            HEAVY=self['UNIT_ACTION_QUEUE_POWER_COST'][1],
-        )
         self['ROBOTS'] = dict(
             LIGHT=self['ROBOTS'][0].to_lux(),
             HEAVY=self['ROBOTS'][1].to_lux(),

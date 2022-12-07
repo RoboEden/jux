@@ -25,17 +25,10 @@ class MarsQuake(NamedTuple):
 
     @classmethod
     def from_lux(cls, lux_mars_quake):
-        return cls(
-            RUBBLE=(
-                lux_mars_quake['RUBBLE']['LIGHT'],
-                lux_mars_quake['RUBBLE']['HEAVY'],
-            ),
-            TIME_RANGE=tuple(lux_mars_quake['TIME_RANGE']),
-        )
+        return cls(TIME_RANGE=tuple(lux_mars_quake['TIME_RANGE']))
 
     def to_lux(self):
         return {
-            'RUBBLE': dict(LIGHT=self.RUBBLE[0], HEAVY=self.RUBBLE[1]),
             'TIME_RANGE': list(self.TIME_RANGE),
         }
 

@@ -3,7 +3,7 @@ from typing import Dict, NamedTuple, Type
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import Array, lax
+from jax import Array
 from luxai2022.env import Factory as LuxFactory
 from luxai2022.env import Unit as LuxUnit
 from luxai2022.map.board import Board as LuxBoard
@@ -70,14 +70,17 @@ class Board(NamedTuple):
     type: int[height, width]
     '''
 
-    spawn_masks: Array  # int[height, width]
-    '''
-    team_id allowed to spawn factory in each cell.
-    INT32_MAX = no team.
-    type: int[height, width]
-    '''
-
-    # spawns is duplicated with spawn_masks, please use spawn_masks instead.
+    @property
+    def valid_spawn_mask(self) -> Array:  # bool[height, width]
+        # valid_spawns_mask = np.ones((self.height, self.width), dtype=jnp.bool_)  # bool[height, width]
+        valid_spawns_mask = (~self.map.ice & ~self.map.ore)  # bool[height, width]
+        valid_spawns_mask = valid_spawns_mask & jnp.roll(valid_spawns_mask, 1, axis=0)
+        valid_spawns_mask = valid_spawns_mask & jnp.roll(valid_spawns_mask, -1, axis=0)
+        valid_spawns_mask = valid_spawns_mask & jnp.roll(valid_spawns_mask, 1, axis=1)
+        valid_spawns_mask = valid_spawns_mask & jnp.roll(valid_spawns_mask, -1, axis=1)
+        valid_spawns_mask = valid_spawns_mask.at[[0, -1], :].set(False)
+        valid_spawns_mask = valid_spawns_mask.at[:, [0, -1]].set(False)
+        return valid_spawns_mask
 
     @classmethod
     def new(cls, seed: int, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig):
@@ -115,7 +118,6 @@ class Board(NamedTuple):
 
         factory_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
         factory_occupancy_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
-        spawn_masks = cls.get_valid_spawns(height, width, symmetry)
 
         return cls(
             height=height,
@@ -128,7 +130,6 @@ class Board(NamedTuple):
             units_map=units_map,
             factory_map=factory_map,
             factory_occupancy_map=factory_occupancy_map,
-            spawn_masks=spawn_masks,
         )
 
     @classmethod
@@ -179,11 +180,6 @@ class Board(NamedTuple):
         unit_id = jnp.array(unit_id, dtype=jnp.int32)
         units_map = units_map.at[ys, xs].set(unit_id)
 
-        # spawn_masks
-        spawn_masks = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)
-        spawn_masks = spawn_masks.at[lux_board.spawn_masks['player_0']].set(0)
-        spawn_masks = spawn_masks.at[lux_board.spawn_masks['player_1']].set(1)
-
         return cls(
             height=height,
             width=width,
@@ -195,7 +191,6 @@ class Board(NamedTuple):
             units_map=units_map,
             factory_map=factory_map,
             factory_occupancy_map=factory_occupancy_map,
-            spawn_masks=spawn_masks,
         )
 
     def to_lux(
@@ -238,18 +233,7 @@ class Board(NamedTuple):
 
         lux_board.factory_occupancy_map = np.array(self.factory_occupancy_map[:self.height, :self.width])
         lux_board.factory_occupancy_map[lux_board.factory_occupancy_map == INT32_MAX] = -1
-        lux_board.spawn_masks = {
-            "player_0": np.array(self.spawn_masks == 0),
-            "player_1": np.array(self.spawn_masks == 1),
-        }
-        spawns0 = np.array(lux_board.spawn_masks['player_0'].nonzero()).T
-        spawns1 = np.array(lux_board.spawn_masks['player_1'].nonzero()).T
-        spawns0 = spawns0[(spawns0 > 0).all(axis=1) & (spawns0 < np.array([height, width]) - 1).all(axis=1)]
-        spawns1 = spawns1[(spawns1 > 0).all(axis=1) & (spawns1 < np.array([height, width]) - 1).all(axis=1)]
-        lux_board.spawns = {
-            "player_0": spawns0,
-            "player_1": spawns1,
-        }
+        lux_board.valid_spawns_mask = np.array(self.valid_spawn_mask)
         return lux_board
 
     @property
@@ -273,40 +257,7 @@ class Board(NamedTuple):
                 & jnp.array_equal(self.lichen_strains, __o.lichen_strains)
                 & jnp.array_equal(self.units_map, __o.units_map)
                 & jnp.array_equal(self.factory_map, __o.factory_map)
-                & jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map)
-                & jnp.array_equal(self.spawn_masks, __o.spawn_masks))
-
-    @staticmethod
-    def get_valid_spawns(height, width, symmetry):
-        xx, yy = np.mgrid[:int(width), :int(height)]
-
-        def _horizontal0():
-            spawns_mask = yy < (height - 2) / 2
-            return spawns_mask
-
-        def _vertical0():
-            spawns_mask = xx < (width - 2) / 2
-            return spawns_mask
-
-        def _horizontal1():
-            spawns_mask = yy >= (height + 2) / 2
-            return spawns_mask
-
-        def _vertical1():
-            spawns_mask = xx >= (width + 2) / 2
-            return spawns_mask
-
-        spawns_mask0 = lax.switch(
-            symmetry,
-            [_horizontal0, _vertical0],
-        )
-        spawns_mask1 = lax.switch(
-            symmetry,
-            [_horizontal1, _vertical1],
-        )
-
-        spawns_masks = spawns_mask0 * 0 + spawns_mask1 * 1 + ~(spawns_mask0 | spawns_mask1) * INT32_MAX
-        return spawns_masks
+                & jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map))
 
     def update_units_map(self, units) -> 'Board':
         units_map = jnp.full_like(self.units_map, fill_value=INT32_MAX)

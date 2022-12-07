@@ -9,19 +9,12 @@ from ..map_generator.test_generator import lux_game_map_eq
 
 
 def lux_board_eq(a: LuxBoard, b: LuxBoard) -> bool:
-    a_spawns0 = np.unique(a.spawns['player_0'], axis=0)
-    b_spawns0 = np.unique(b.spawns['player_0'], axis=0)
-    a_spawns1 = np.unique(a.spawns['player_1'], axis=0)
-    b_spawns1 = np.unique(b.spawns['player_1'], axis=0)
 
     return (a.height == b.height and a.width == b.width and a.seed == b.seed
             and a.factories_per_team == b.factories_per_team and np.array_equal(a.lichen, b.lichen)
             and np.array_equal(a.lichen_strains, b.lichen_strains) and a.units_map == b.units_map
             and a.factory_map == b.factory_map and np.array_equal(a.factory_occupancy_map, b.factory_occupancy_map)
-            and lux_game_map_eq(a.map, b.map) and np.array_equal(a_spawns0, b_spawns0)
-            and np.array_equal(a_spawns1, b_spawns1)
-            and np.array_equal(a.spawn_masks['player_0'], b.spawn_masks['player_0'])
-            and np.array_equal(a.spawn_masks['player_1'], b.spawn_masks['player_1']))
+            and lux_game_map_eq(a.map, b.map) and np.array_equal(a.valid_spawns_mask, b.valid_spawns_mask))
 
 
 class TestBoard(chex.TestCase):
