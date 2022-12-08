@@ -423,19 +423,25 @@ class State(NamedTuple):
         chex.assert_shape(actions.unit_action_queue_update, (2, self.MAX_N_UNITS))
 
     # def step(self, actions: JuxAction) -> 'State':
-    #     # TODO
-    #     checkify.check(
-    #         jnp.array_equiv(self.board.factories_per_team, self.board.factories_per_team[0]),
-    #         "all envs shall have the same factories_per_team",
+    #     # TODO: check input actions's shape
+    #     early_game = ((self.env_steps == 0) | (self.env_cfg.BIDDING_SYSTEM &
+    #                                            (self.env_steps <= self.board.factories_per_team + 1))).all()
+
+    #     self = jax.lax.cond(
+    #         early_game,
+    #         State._step_early_game,
+    #         State._step_late_game,
+    #         self,
+    #         actions,
     #     )
-    #     early_game = ((self.env_steps == 0) |
-    #                   (self.env_cfg.BIDDING_SYSTEM & self.env_steps <= self.board.factories_per_team + 1)).all()
-    #     return jax.lax(
-    #         cond=early_game,
-    #         true_fun=State._step_early_game,
-    #         false_fun=State._step_late_game,
-    #         operand=actions,
-    #     )
+
+    #     # always set rubble under factories to 0.
+    #     rubble = jnp.where(self.board.factory_occupancy_map != INT32_MAX, 0, self.board.rubble)
+    #     self = self._replace(board=self.board._replace(map=self.board.map._replace(rubble=rubble)))
+
+    #     # TODO: calculate reward, dones, observations
+
+    #     return self
 
     def _step_early_game(self, actions: JuxAction) -> 'State':
         # TODO
@@ -446,7 +452,7 @@ class State(NamedTuple):
         # TODO
         real_env_steps = jnp.where(
             self.env_cfg.BIDDING_SYSTEM,
-            self.env_steps - (self.board.factories_per_team + 1 + 1),
+            self.env_steps - (self.board.factories_per_team * 2 + 1),
             self.env_steps,
         )
         unit_mask = self.unit_mask
@@ -494,8 +500,7 @@ class State(NamedTuple):
         failed_players = failed_players | failed_action
 
         # update units action queue
-        action_queue_power_cost = jnp.array(self.env_cfg.UNIT_ACTION_QUEUE_POWER_COST)
-        update_power_req = action_queue_power_cost[self.units.unit_type] * weather_cfg["power_loss_factor"]
+        update_power_req = self.units.unit_cfg.ACTION_QUEUE_POWER_COST * weather_cfg["power_loss_factor"]
         chex.assert_shape(update_power_req, (2, self.MAX_N_UNITS))
         update_queue = actions.unit_action_queue_update & unit_mask & (update_power_req <= self.units.power)
         new_power = jnp.where(update_queue, self.units.power - update_power_req, self.units.power)
@@ -515,30 +520,43 @@ class State(NamedTuple):
 
         # 3. validate all actions against current state, throw away impossible actions TODO
         # pop next actions
-        new_units, unit_action = jax.vmap(jax.vmap(Unit.next_action))(self.units)
-        # new_units = jux.tree_util.tree_where(unit_mask & ~failed_players[..., None], new_units, self.units)
-        pop_success = unit_mask & ~failed_players[..., None]
-        new_units = new_units._replace(action_queue=new_units.action_queue._replace(
-            front=jnp.where(pop_success, new_units.action_queue.front, self.units.action_queue.front),
-            rear=jnp.where(pop_success, new_units.action_queue.rear, self.units.action_queue.rear),
-            count=jnp.where(pop_success, new_units.action_queue.count, self.units.action_queue.count),
-        ))
-        self = self._replace(units=new_units)
-        unit_action = jux.tree_util.tree_where(unit_mask & ~failed_players[..., None], unit_action, UnitAction())
+        unit_action = jax.vmap(jax.vmap(Unit.next_action))(self.units)
+        unit_action = jux.tree_util.tree_where(unit_mask & ~failed_players[..., None], unit_action,
+                                               UnitAction.do_nothing())
 
         factory_actions = jnp.where(factory_mask & ~failed_players[..., None], actions.factory_action,
                                     FactoryAction.DO_NOTHING)
 
-        self = self._handle_transfer_actions(unit_action)
-        self = self._handle_pickup_actions(unit_action)
-        self = self._handle_dig_actions(unit_action, weather_cfg)
-        self = self._handle_self_destruct_actions(unit_action)
+        success = jnp.zeros((2, self.MAX_N_UNITS), dtype=jnp.bool_)  # bool[2, U]
+
+        self, suc = self._handle_transfer_actions(unit_action)
+        success = success | suc
+
+        self, suc = self._handle_pickup_actions(unit_action)
+        success = success | suc
+
+        self, suc = self._handle_dig_actions(unit_action, weather_cfg)
+        success = success | suc
+
+        # self_destruct changes the unit order.
+        # In such case, success must be sort accordingly, so we need to pass in and out success.
+        # So does _handle_movement_actions. Movement may change the unit order because of collisions.
+        self, success = self._handle_self_destruct_actions(unit_action, success)
+
         self = self._handle_factory_build_actions(factory_actions, weather_cfg)
-        self = self._handle_movement_actions(unit_action, weather_cfg)
-        self = self._handle_recharge_actions(unit_action)
+
+        self, success = self._handle_movement_actions(unit_action, weather_cfg, success)
+
+        self, suc = self._handle_recharge_actions(unit_action)
+        success = success | suc
+
         self = self._handle_factory_water_actions(factory_actions)
 
-        # TODO: update lichen
+        # handle action pop and repeat
+        units = jax.vmap(jax.vmap(Unit.repeat_action))(self.units, success)
+        self = self._replace(units=units)
+
+        # update lichen
         new_lichen = self.board.lichen - 1
         new_lichen = new_lichen.clip(0, self.env_cfg.MAX_LICHEN_PER_TILE)
         new_lichen_strains = jnp.where(new_lichen == 0, INT32_MAX, self.board.lichen_strains)
@@ -582,65 +600,48 @@ class State(NamedTuple):
         # update step number
         self = self._replace(env_steps=self.env_steps + 1)
 
+        # always set rubble under factories to 0.
+        rubble = jnp.where(self.board.factory_occupancy_map != INT32_MAX, 0, self.board.rubble)
+        self = self._replace(board=self.board._replace(map=self.board.map._replace(rubble=rubble)))
+
         return self
 
-    def _handle_transfer_actions(self, actions: UnitAction):
+    def _handle_transfer_actions(self, actions: UnitAction) -> Tuple['State', Array]:
         # pytype: disable=attribute-error
         # pytype: disable=unsupported-operands
 
         # 1. validate the action
         is_transfer = (actions.action_type == UnitActionType.TRANSFER)
 
-        # only allow transfer if there is enough resources
-        stock = self.units.cargo.stock[(
-            jnp.arange(2)[:, None],
-            jnp.arange(self.MAX_N_UNITS)[None, :],
-            actions.resource_type,
-        )]  # int[2, U]
-        stock = jnp.where(actions.resource_type == ResourceType.power, self.units.power, stock)  # int[2, U]
-        is_transfer = is_transfer & (actions.amount <= stock)  # bool[2, U]
-
         # the target must be in map
         target_pos = Position(self.units.pos.pos + direct2delta_xy[actions.direction])  # int[2, U, 2]
         within_map = ((target_pos.pos >= 0) & (target_pos.pos < self.env_cfg.map_size)).all(-1)  # bool[2, U]
         is_transfer = is_transfer & within_map
+        success = is_transfer
 
-        # there must be a target
-        target_factory_id = self.board.factory_occupancy_map[target_pos.y, target_pos.x]  # int[2, U]
+        # 2. handle the action
+        # decide target
+        target_factory_id = self.board.factory_occupancy_map[target_pos.x, target_pos.y]  # int[2, U]
         target_factory_idx = self.factory_id2idx.at[target_factory_id].get('fill', fill_value=INT32_MAX)  # int[2, U, 2]
         there_is_a_factory = target_factory_idx[..., 1] < self.n_factories[:, None]  # bool[2, U]
 
-        target_unit_id = self.board.units_map[target_pos.y, target_pos.x]  # int[2, U]
+        target_unit_id = self.board.units_map[target_pos.x, target_pos.y]  # int[2, U]
         target_unit_idx = self.unit_id2idx.at[target_unit_id].get('fill', fill_value=INT32_MAX)  # int[2, U, 2]
         there_is_an_unit = target_unit_idx[..., 1] < self.n_units[:, None]  # bool[2, U]
-        is_transfer = is_transfer & (there_is_an_unit | there_is_a_factory)
 
-        # 2. handle the action
         transfer_to_factory = is_transfer & there_is_a_factory  # bool[2, U]
-        transfer_to_unit = is_transfer & ~there_is_a_factory  # bool[2, U]
+        transfer_to_unit = is_transfer & ~there_is_a_factory & there_is_an_unit  # bool[2, U]
         is_power = (actions.resource_type == ResourceType.power)
 
         # deduce from unit
-        transferred_resource = jnp.where(is_transfer & ~is_power, actions.amount, 0)  # int[2, U]
-        transferred_power = jnp.where(is_transfer & is_power, actions.amount, 0)  # int[2, U]
-        unit_stock = self.units.cargo.stock.at[(
-            jnp.arange(2)[:, None],
-            jnp.arange(self.MAX_N_UNITS)[None, :],
-            actions.resource_type,
-        )].add(-transferred_resource, mode='drop')  # int[2, U, 4]
-        unit_power = self.units.power.at[(
-            jnp.arange(2)[:, None],
-            jnp.arange(self.MAX_N_UNITS)[None, :],
-        )].add(-transferred_power, mode='drop')  # int[2, U]
-        units = self.units._replace(
-            cargo=UnitCargo(unit_stock),
-            power=unit_power,
-        )
+        transfer_amount = jnp.where(is_transfer, actions.amount, 0)  # int[2, U]
+        units, transfer_amount = jax.vmap(jax.vmap(Unit.sub_resource))(self.units, actions.resource_type,
+                                                                       transfer_amount)
         self = self._replace(units=units)
 
         # transfer to factory
-        transferred_resource = jnp.where(transfer_to_factory & ~is_power, actions.amount, 0)  # int[2, U]
-        transferred_power = jnp.where(transfer_to_factory & is_power, actions.amount, 0)  # int[2, U]
+        transferred_resource = jnp.where(transfer_to_factory & ~is_power, transfer_amount, 0)  # int[2, U]
+        transferred_power = jnp.where(transfer_to_factory & is_power, transfer_amount, 0)  # int[2, U]
         factory_stock = self.factories.cargo.stock.at[(
             jnp.arange(2)[:, None],
             target_factory_idx[..., 1],
@@ -657,8 +658,8 @@ class State(NamedTuple):
         self = self._replace(factories=factories)
 
         # transfer to unit
-        transferred_resource = jnp.where(transfer_to_unit & ~is_power, actions.amount, 0)  # int[2, U]
-        transferred_power = jnp.where(transfer_to_unit & is_power, actions.amount, 0)  # int[2, U]
+        transferred_resource = jnp.where(transfer_to_unit & ~is_power, transfer_amount, 0)  # int[2, U]
+        transferred_power = jnp.where(transfer_to_unit & is_power, transfer_amount, 0)  # int[2, U]
         unit_stock = self.units.cargo.stock.at[(
             jnp.arange(2)[:, None],
             target_unit_idx[..., 1],
@@ -677,11 +678,16 @@ class State(NamedTuple):
         )
         self = self._replace(units=units)
 
-        return self
+        return self, success
         # pytype: enable=attribute-error
         # pytype: enable=unsupported-operands
 
-    def _handle_pickup_actions(self, actions: UnitAction):
+    def _handle_pickup_actions(self, actions: UnitAction) -> Tuple['State', Array]:
+        # TODO: align with v1.1.1
+        there_is_a_factory = self.board.factory_occupancy_map[self.units.pos.x,
+                                                              self.units.pos.y] != INT32_MAX  # bool[2, U]
+        success = (UnitActionType.PICKUP == actions.action_type) & (there_is_a_factory)
+
         # This action is difficult to vectorize, because pickup actions are not
         # independent from each other. Two robots may pick up from the same
         # factory. Assume there two robots, both pickup 10 power from the same
@@ -704,7 +710,7 @@ class State(NamedTuple):
         chex.assert_shape(occupy_pos, (2, self.MAX_N_FACTORIES, 9, 2))
 
         # get the unit idx on factories
-        unit_id_on_factory = self.board.units_map[occupy_pos.y, occupy_pos.x]
+        unit_id_on_factory = self.board.units_map[occupy_pos.x, occupy_pos.y]
         unit_id_on_factory = jnp.sort(unit_id_on_factory, axis=-1)  # sort by id, so small ids have higher priority
         unit_idx_on_factory = self.unit_id2idx[unit_id_on_factory]  # int[2, F, 9, 2]
         unit_team_idx, unit_idx = unit_idx_on_factory[..., 0], unit_idx_on_factory[..., 1]  # int[2, F, 9]
@@ -763,11 +769,13 @@ class State(NamedTuple):
         new_units = self.units._replace(power=units_power, cargo=UnitCargo(units_stock))
         self = self._replace(factories=new_factories, units=new_units)
 
-        return self
+        return self, success
         # pytype: enable=attribute-error
         # pytype: enable=unsupported-operands
 
-    def _handle_dig_actions(self: 'State', actions: UnitAction, weather_cfg: Dict[str, np.ndarray]):
+    def _handle_dig_actions(self: 'State', actions: UnitAction, weather_cfg: Dict[str,
+                                                                                  np.ndarray]) -> Tuple['State', Array]:
+        # TODO: align with v1.1.1
         # 1. check if dig action is valid
         unit_mask = self.unit_mask
         units = self.units
@@ -778,32 +786,33 @@ class State(NamedTuple):
         is_dig = is_dig & (power_req <= units.power)
 
         # cannot dig if on top of a factory
-        y, x = units.pos.y, units.pos.x
-        factory_id_in_pos = self.board.factory_occupancy_map[y, x]
+        x, y = units.pos.x, units.pos.y
+        factory_id_in_pos = self.board.factory_occupancy_map[x, y]
         factory_player_id = self.factory_id2idx.at[factory_id_in_pos].get(mode='fill', fill_value=INT32_MAX)[..., 0]
         is_dig = is_dig & (factory_player_id == INT32_MAX)
+        success = is_dig
 
         # 2. execute dig action
         new_power = jnp.where(is_dig, units.power - power_req, units.power)
         units = units._replace(power=new_power)
 
         # rubble
-        dig_rubble = is_dig & (self.board.rubble[y, x] > 0)
-        new_rubble = self.board.rubble.at[y, x].add(-units.unit_cfg.DIG_RUBBLE_REMOVED * dig_rubble)
+        dig_rubble = is_dig & (self.board.rubble[x, y] > 0)
+        new_rubble = self.board.rubble.at[x, y].add(-units.unit_cfg.DIG_RUBBLE_REMOVED * dig_rubble)
         new_rubble = jnp.maximum(new_rubble, 0)
 
         # lichen
-        dig_lichen = is_dig & ~dig_rubble & (self.board.lichen[y, x] > 0)
-        new_lichen = self.board.lichen.at[y, x].add(-units.unit_cfg.DIG_LICHEN_REMOVED * dig_lichen)
+        dig_lichen = is_dig & ~dig_rubble & (self.board.lichen[x, y] > 0)
+        new_lichen = self.board.lichen.at[x, y].add(-units.unit_cfg.DIG_LICHEN_REMOVED * dig_lichen)
         new_lichen = jnp.maximum(new_lichen, 0)
 
         # ice
-        dig_ice = is_dig & ~dig_rubble & ~dig_lichen & self.board.ice[y, x]
+        dig_ice = is_dig & ~dig_rubble & ~dig_lichen & self.board.ice[x, y]
         add_resource = jax.vmap(jax.vmap(Unit.add_resource, in_axes=(0, None, 0)), in_axes=(0, None, 0))
         units, _ = add_resource(units, ResourceType.ice, units.unit_cfg.DIG_RESOURCE_GAIN * dig_ice)
 
         # ore
-        dig_ore = is_dig & ~dig_rubble & ~dig_lichen & ~dig_ice & (self.board.ore[y, x] > 0)
+        dig_ore = is_dig & ~dig_rubble & ~dig_lichen & ~dig_ice & (self.board.ore[x, y] > 0)
         units, _ = add_resource(units, ResourceType.ore, units.unit_cfg.DIG_RESOURCE_GAIN * dig_ore)
 
         new_self = self._replace(
@@ -813,11 +822,11 @@ class State(NamedTuple):
                 lichen=new_lichen,
             ),
         )
-        return new_self
+        return new_self, success
 
-    def _handle_self_destruct_actions(self, actions: UnitAction):
+    def _handle_self_destruct_actions(self, actions: UnitAction, success: Array) -> Tuple['State', Array]:
         # TODO
-        return self
+        return self, success | (actions.action_type == UnitActionType.SELF_DESTRUCT)
 
     def _handle_factory_build_actions(self: 'State', factory_actions: Array, weather_cfg: Dict[str, np.ndarray]):
         factory_mask = self.factory_mask
@@ -882,7 +891,9 @@ class State(NamedTuple):
             global_id=self.global_id + n_new_units.sum(),
         )
 
-    def _handle_movement_actions(self, actions: UnitAction, weather_cfg: Dict[str, np.ndarray]):
+    def _handle_movement_actions(self, actions: UnitAction, weather_cfg: Dict[str, np.ndarray],
+                                 success: Array) -> Tuple['State', Array]:
+        # TODO: align with v1.1.1
         unit_mask = self.unit_mask
         player_id = jnp.array([0, 1])[..., None]
 
@@ -896,17 +907,21 @@ class State(NamedTuple):
         is_moving_action = is_moving_action & ~off_map
 
         # can't move into a cell occupied by opponent's factory
-        factory_id_in_new_pos = self.board.factory_occupancy_map[new_pos.y, new_pos.x]
+        factory_id_in_new_pos = self.board.factory_occupancy_map[new_pos.x, new_pos.y]
         factory_player_id = self.factory_id2idx.at[factory_id_in_new_pos].get(mode='fill', fill_value=INT32_MAX)[..., 0]
         opponent_id = player_id[::-1]
         target_is_opponent_factory = factory_player_id == opponent_id
         is_moving_action = is_moving_action & ~target_is_opponent_factory
 
         # can't move if power is not enough
-        target_rubble = self.board.rubble[new_pos.y, new_pos.x]
+        target_rubble = self.board.rubble[new_pos.x, new_pos.y]
         power_required = jax.vmap(jax.vmap(Unit.move_power_cost))(self.units, target_rubble)
         power_required = power_required * weather_cfg["power_loss_factor"]
         is_moving_action = is_moving_action & (power_required <= self.units.power)
+
+        # moving to center is always considered as success
+        success = success | is_moving_action | (((actions.action_type == UnitActionType.MOVE) &
+                                                 (actions.direction == Direction.CENTER)) & unit_mask)
 
         # 2. update unit position and power
         new_pos = self.units.pos.pos + direct2delta_xy[actions.direction] * is_moving_action[..., None]
@@ -929,17 +944,17 @@ class State(NamedTuple):
         x, y = units.pos.x, units.pos.y
 
         cnt = jnp.zeros_like(self.board.units_map)
-        still_light_cnt = cnt.at[y, x].add(light & still, mode='drop')  # int[H, W]
-        moving_light_cnt = cnt.at[y, x].add(light & moving, mode='drop')  # int[H, W]
-        still_heavy_cnt = cnt.at[y, x].add(heavy & still, mode='drop')  # int[H, W]
-        moving_heavy_cnt = cnt.at[y, x].add(heavy & moving, mode='drop')  # int[H, W]
+        still_light_cnt = cnt.at[x, y].add(light & still, mode='drop')  # int[H, W]
+        moving_light_cnt = cnt.at[x, y].add(light & moving, mode='drop')  # int[H, W]
+        still_heavy_cnt = cnt.at[x, y].add(heavy & still, mode='drop')  # int[H, W]
+        moving_heavy_cnt = cnt.at[x, y].add(heavy & moving, mode='drop')  # int[H, W]
         chex.assert_equal_shape([still_light_cnt, moving_light_cnt, still_heavy_cnt, moving_heavy_cnt, cnt])
 
         # map above count to agent-wise
-        still_light_cnt = still_light_cnt[y, x]  # int[2, MAX_N_UNITS]
-        moving_light_cnt = moving_light_cnt[y, x]  # int[2, MAX_N_UNITS]
-        still_heavy_cnt = still_heavy_cnt[y, x]  # int[2, MAX_N_UNITS]
-        moving_heavy_cnt = moving_heavy_cnt[y, x]  # int[2, MAX_N_UNITS]
+        still_light_cnt = still_light_cnt[x, y]  # int[2, MAX_N_UNITS]
+        moving_light_cnt = moving_light_cnt[x, y]  # int[2, MAX_N_UNITS]
+        still_heavy_cnt = still_heavy_cnt[x, y]  # int[2, MAX_N_UNITS]
+        moving_heavy_cnt = moving_heavy_cnt[x, y]  # int[2, MAX_N_UNITS]
         chex.assert_shape(still_light_cnt, (2, self.MAX_N_UNITS))  # bool[2, MAX_N_UNITS]
         chex.assert_equal_shape([still_light_cnt, moving_light_cnt, still_heavy_cnt, moving_heavy_cnt])
 
@@ -965,10 +980,38 @@ class State(NamedTuple):
         for case in cases[1:]:
             dead = dead | case
 
+        self = self._replace(units=units)
+        self, live_idx = self.destroy_unit(dead)
+
+        success = success[jnp.arange(2)[:, None], live_idx]
+        success = success & unit_mask
+
+        return self, success
+
+    def destroy_unit(self, dead: Array) -> Tuple['State', Array]:
+        '''
+        Destroy dead units, and put them into the end of the array.
+
+        Args:
+            dead: bool[2, U], dead indicator.
+
+        Returns:
+            new_state: State, new state.
+            live_idx: int[2, U], the index of live units. Only the part with self.unit_mask == True is valid.
+        '''
+        unit_mask = self.unit_mask  # bool[2, U]
+        units = self.units
+
+        # add rubble to the board
+        rubble = self.board.rubble.at[(
+            units.pos.x,
+            units.pos.y,
+        )].add(dead * self.units.unit_cfg.RUBBLE_AFTER_DESTRUCTION, mode='drop')
+
         # remove dead units, put them into the end of the array
         is_alive = ~dead & unit_mask
-        unit_idx = jnp.where(is_alive, self.unit_idx, jnp.iinfo(jnp.int32).max)
-        arg = jnp.argsort(unit_idx)
+        unit_idx = jnp.where(is_alive, self.unit_idx, INT32_MAX)
+        live_idx = jnp.argsort(unit_idx)
 
         empty_unit = jax.tree_map(
             lambda x: jnp.array(x)[None, None],
@@ -977,26 +1020,31 @@ class State(NamedTuple):
         )
 
         units = jux.tree_util.tree_where(dead, empty_unit, units)
-        units = jax.tree_map(lambda x: x[player_id, arg], units)
+        units = jax.tree_map(lambda x: x[jnp.arange(2)[:, None], live_idx], units)
 
-        # 4. update other states
+        # update other states
         n_units = self.n_units - dead.sum(axis=1)
         unit_id2idx = State.generate_unit_id2idx(units, self.MAX_N_UNITS)
 
         # update board
+        board = self.board.update_units_map(units)
+        board = board._replace(map=board.map._replace(rubble=rubble))
+
         self = self._replace(
             units=units,
             n_units=n_units,
             unit_id2idx=unit_id2idx,
-            board=self.board.update_units_map(units),
+            board=board,
         )
-        return self
+        return self, live_idx
 
     def _handle_recharge_actions(self, actions: UnitAction):
         # TODO
-        return self
+        return self, (actions.action_type == UnitActionType.RECHARGE)
 
     def _handle_factory_water_actions(self, factory_actions: Array):
+        # TODO: align with v1.1.1
+
         # 1. prepare lichen connection info
         # The key idea here is to prepare a list of neighbors for each cell it connects to, when watered.
         # neighbor_ij is a 4x2xHxW array, where the first dimension is the neighbors (4 at most), the second dimension is the 2 coordinates.
@@ -1099,9 +1147,9 @@ class State(NamedTuple):
                                        (self.board.factory_occupancy_map != INT32_MAX))
 
         # 1.2.2 edge cells connect to x cells
-        edge_pos = Position(self.factories.pos.pos[..., None, :] + delta_ij[:, ::-1])  # int[2, F, 4, 2]
+        edge_pos = Position(self.factories.pos.pos[..., None, :] + delta_ij)  # int[2, F, 4, 2]
 
-        x_ij = neighbor_ij.at[jnp.arange(4), :, edge_pos.y, edge_pos.x]
+        x_ij = neighbor_ij.at[jnp.arange(4), :, edge_pos.x, edge_pos.y]
         x_ij = x_ij.get(mode='fill', fill_value=INT32_MAX)  # int[2, F, 4, 2]
 
         x_rubble = self.board.rubble.at[x_ij[..., 0], x_ij[..., 1]]
@@ -1113,8 +1161,8 @@ class State(NamedTuple):
         x_connect_cond = (x_rubble == 0 & ((x_strains == INT32_MAX) | (x_strains == self.factories.unit_id[..., None])))
         connect_cond = connect_cond.at[(
             jnp.arange(4),
-            edge_pos.y,
             edge_pos.x,
+            edge_pos.y,
         )].set(x_connect_cond, mode='drop')  # bool[4, H, W]
 
         # 1.2.3 x cells connect back to edge cells
@@ -1132,7 +1180,7 @@ class State(NamedTuple):
         cmp_cnt = jux.map_generator.flood.component_sum(1, color)  # int[H, W]
 
         # -9 for the factory occupied cells
-        grow_lichen_size = cmp_cnt[self.factories.pos.y, self.factories.pos.x] - 9  # int[2, F]
+        grow_lichen_size = cmp_cnt[self.factories.pos.x, self.factories.pos.y] - 9  # int[2, F]
         water_cost = jnp.ceil(grow_lichen_size / self.env_cfg.LICHEN_WATERING_COST_FACTOR).astype(jnp.int32) + 1
 
         # 3. perform action
@@ -1144,8 +1192,8 @@ class State(NamedTuple):
 
         # lichen growth
         delta_lichen = jnp.zeros((H, W), dtype=jnp.int32)  # int[H, W]
-        factory_color = color.at[:, self.factories.pos.y,
-                                 self.factories.pos.x].get(mode='fill', fill_value=INT32_MAX)  # int[2, 2, F]
+        factory_color = color.at[:, self.factories.pos.x,
+                                 self.factories.pos.y].get(mode='fill', fill_value=INT32_MAX)  # int[2, 2, F]
         delta_lichen = delta_lichen.at[factory_color[0], factory_color[1]].add(is_water, mode='drop')
         delta_lichen = delta_lichen.at[color[0], color[1]].get(mode='fill', fill_value=0)
         delta_lichen = jnp.where(self.board.factory_occupancy_map == INT32_MAX, delta_lichen, 0)

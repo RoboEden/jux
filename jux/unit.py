@@ -111,15 +111,57 @@ class Unit(NamedTuple):
         lux_unit.action_queue = self.action_queue.to_lux()
         return lux_unit
 
-    def next_action(self) -> Tuple['Unit', UnitAction]:
-        act, new_action_queue = self.action_queue.pop()
+    def next_action(self) -> UnitAction:
+        act = self.action_queue.peek()
         act = jax.lax.cond(
             self.action_queue.is_empty(),
-            lambda: UnitAction(jnp.zeros(5, dtype=jnp.int32)),
+            lambda: UnitAction.do_nothing(),  # empty action
             lambda: act,
         )
-        # TODO: handle repeat action
-        return self._replace(action_queue=new_action_queue), act
+        return act
+
+    def repeat_action(self, success: bool) -> 'Unit':
+        '''
+        Currently, invalid actions in luxai2021 are not executed and also not
+        removed from the action queue. So, wee need an indicator 'success' to
+        indicate whether the action is executed successfully. Only when the
+        action is executed successfully, we can pop/repeat it.
+
+        Args:
+            success (bool[2, U]): whether the action is executed successfully
+        Returns:
+            Unit: the unit with updated action queue
+        '''
+
+        def _repeat_minus_one(action_queue: ActionQueue) -> ActionQueue:
+            data = action_queue.data.at[action_queue.front, -1].add(-1)
+            return action_queue._replace(data=data)
+
+        def _pop_and_push_back(action_queue: ActionQueue) -> ActionQueue:
+            act, new_queue = action_queue.pop()
+            return new_queue.push_back(act)
+
+        def _repeat_action(self: 'Unit'):
+            act = self.action_queue.peek()
+            repeat_minus_one = (act.repeat > 0)
+            pop_and_push_back = (act.repeat < 0)
+            action_queue = jax.lax.switch(
+                repeat_minus_one + pop_and_push_back * 2,
+                [
+                    lambda queue: queue.pop()[1],
+                    _repeat_minus_one,
+                    _pop_and_push_back,
+                ],
+                self.action_queue,
+            )
+            return self._replace(action_queue=action_queue)
+
+        return jax.lax.cond(
+            success & ~self.action_queue.is_empty(),
+            lambda self: _repeat_action(self),
+            lambda self: self,
+            self,
+        )
 
     def is_heavy(self) -> Union[bool, Array]:
         return self.unit_type == UnitType.HEAVY
@@ -154,7 +196,7 @@ class Unit(NamedTuple):
         )
         return new_unit, transfer_amount
 
-    def sub_resource(self, resource: ResourceType, amount: int) -> Union[int, Array]:
+    def sub_resource(self, resource: ResourceType, amount: int) -> Tuple['Unit', Union[int, Array]]:
         # If resource != ResourceType.power, call UnitCargo.add_resource.
         # else, call Unit.sub_resource.
         def sub_power(self, resource: ResourceType, amount: int):

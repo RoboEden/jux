@@ -157,7 +157,7 @@ class Board(NamedTuple):
             factory_id.append(v)
         factory_map = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)  # default value is INT32_MAX
         factory_id = jnp.array(factory_id, dtype=jnp.int32)
-        factory_map = factory_map.at[ys, xs].set(factory_id)
+        factory_map = factory_map.at[xs, ys].set(factory_id)
 
         factory_occupancy_map = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)
         factory_occupancy_map = factory_occupancy_map.at[:height, :width].set(lux_board.factory_occupancy_map)
@@ -178,7 +178,7 @@ class Board(NamedTuple):
             unit_id.append(v)
         units_map = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)  # default value is INT32_MAX
         unit_id = jnp.array(unit_id, dtype=jnp.int32)
-        units_map = units_map.at[ys, xs].set(unit_id)
+        units_map = units_map.at[xs, ys].set(unit_id)
 
         return cls(
             height=height,
@@ -214,21 +214,21 @@ class Board(NamedTuple):
         lichen_strains = lichen_strains.at[lichen_strains == INT32_MAX].set(-1)
         lux_board.lichen_strains = np.array(lichen_strains)
 
-        ys, xs = (self.units_map[:self.height, :self.width] != INT32_MAX).nonzero()
-        unit_id = self.units_map[ys, xs]
-        ys, xs, unit_id = np.array(ys), np.array(xs), np.array(unit_id)
+        xs, ys = (self.units_map[:self.height, :self.width] != INT32_MAX).nonzero()
+        unit_id = self.units_map[xs, ys]
+        xs, ys, unit_id = np.array(xs), np.array(ys), np.array(unit_id)
         lux_units = {**lux_units['player_0'], **lux_units['player_1']}
         lux_board.units_map = {}
-        for y, x, uid in zip(ys, xs, unit_id):
+        for x, y, uid in zip(xs, ys, unit_id):
             lux_board.units_map.setdefault(f'({x}, {y})', []).append(lux_units[f"unit_{int(uid)}"])
 
-        ys, xs = (self.factory_map[:self.height, :self.width] != INT32_MAX).nonzero()
-        factory_id = self.factory_map[ys, xs]
-        ys, xs, factory_id = np.array(ys), np.array(xs), np.array(factory_id)
+        xs, ys = (self.factory_map[:self.height, :self.width] != INT32_MAX).nonzero()
+        factory_id = self.factory_map[xs, ys]
+        xs, ys, factory_id = np.array(xs), np.array(ys), np.array(factory_id)
         lux_factories = {**lux_factories['player_0'], **lux_factories['player_1']}
         lux_board.factory_map = {
             f'({x}, {y})': lux_factories[f"factory_{int(fid)}"]
-            for y, x, fid in zip(ys, xs, factory_id)
+            for x, y, fid in zip(xs, ys, factory_id)
         }
 
         lux_board.factory_occupancy_map = np.array(self.factory_occupancy_map[:self.height, :self.width])
@@ -262,5 +262,5 @@ class Board(NamedTuple):
     def update_units_map(self, units) -> 'Board':
         units_map = jnp.full_like(self.units_map, fill_value=INT32_MAX)
         pos = units.pos
-        units_map = units_map.at[pos.y, pos.x].set(units.unit_id, mode='drop')
+        units_map = units_map.at[pos.x, pos.y].set(units.unit_id, mode='drop')
         return self._replace(units_map=units_map)

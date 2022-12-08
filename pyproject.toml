@@ -41,6 +41,7 @@
         "autoflake",
         "yapf",
         "bump2version",
+        "rich",
     ]
 
 [tool.setuptools.dynamic]

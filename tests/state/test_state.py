@@ -6,11 +6,15 @@ from typing import Dict, Iterable
 import chex
 import jax
 import jax.numpy as jnp
+import pytest
 from luxai2022 import LuxAI2022
 from luxai2022.state import State as LuxState
+from rich import print
 
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.state import JuxAction, State
+
+jnp.set_printoptions(linewidth=500, threshold=10000)
 
 
 def get_actions_from_replay(replay: dict) -> Iterable[Dict[str, Dict]]:
@@ -48,7 +52,7 @@ class TestState(chex.TestCase):
 
     def test_from_to_lux(self):
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=30)
-        env, actions = load_replay()
+        env, actions = load_replay('tests/replay-45702251.json.gz')
         for i in range(10):
             action = next(actions)
             env.step(action)
@@ -66,8 +70,8 @@ class TestState(chex.TestCase):
 
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=30)
-        env, actions = load_replay()
-        for i in range(10):
+        env, actions = load_replay('tests/replay-45702251.json.gz')
+        while env.env_steps < 10:
             act = next(actions)
             env.step(act)
 
@@ -87,45 +91,35 @@ class TestState(chex.TestCase):
 
             return jux_state, lux_state
 
-        # warm up jit
-        state___eq___jitted(jux_state, jux_state)
-        state_step_late_game(jux_state, JuxAction.empty(jux_state.env_cfg, buf_cfg))
+        # # warm up jit, for profile only
+        # state___eq___jitted(jux_state, jux_state)
+        # state_step_late_game(jux_state, JuxAction.empty(jux_state.env_cfg, buf_cfg))
 
         def assert_state_eq(jux_state, lux_state):
             lux_state = State.from_lux(lux_state, buf_cfg)
             assert state___eq___jitted(jux_state, lux_state)
 
         # 4. real test starts here
-
-        # step 8 times
+        # step 3 times
         # it contains only 'move' and 'dig' actions for robots
         # For factory, it contains only 'build' actions
-        for i, act in zip(range(8), actions):
+        for i, act in zip(range(58), actions):
+            print(f"steps: {env.env_steps}")
             jux_state, lux_state = step_both(jux_state, env, act)
             assert_state_eq(jux_state, lux_state)
 
-        # another several steps
-        # it contains a new action 'pickup'
-        for i, act in zip(range(3), actions):
-            jux_state, lux_state = step_both(jux_state, env, act)
-            assert_state_eq(jux_state, lux_state)
+        print(f"steps: {env.env_steps}")
+        act = next(actions)
+        jux_state, lux_state = step_both(jux_state, env, act)
+        assert_state_eq(jux_state, lux_state)
 
-        # another several steps
-        # it contains a new action 'transfer'
-        for i, act in zip(range(3), actions):
-            jux_state, lux_state = step_both(jux_state, env, act)
-            assert_state_eq(jux_state, lux_state)
-
-        for i, act in zip(range(900), actions):
-            if env.env_steps % 100 == 0:
-                print(f"steps: {env.env_steps}")
-                jux_state = State.from_lux(env.state, buf_cfg)
-                jux_state, lux_state = step_both(jux_state, env, act)
-                assert_state_eq(jux_state, lux_state)
-            else:
-                env.step(act)
+        # for i, act in zip(range(100), actions):
+        #     print(f"steps: {env.env_steps}")
+        #     jux_state, lux_state = step_both(jux_state, env, act)
+        #     assert_state_eq(jux_state, lux_state)
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
+    @pytest.mark.skip(reason="no way of currently testing this")
     def test_step_factory_water(self):
         chex.clear_trace_counter()
 

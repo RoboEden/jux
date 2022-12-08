@@ -58,7 +58,7 @@ class TestActionQueue(chex.TestCase):
             lux_actions.SelfDestructAction(False),
         ]
 
-        push = self.variant(ActionQueue.push)
+        push = self.variant(ActionQueue.push_back)
         pop = self.variant(ActionQueue.pop)
         jux_queue = ActionQueue.from_lux(lux_queue, env_cfg.UNIT_ACTION_QUEUE_SIZE)
         jux_action, jux_queue = pop(jux_queue)

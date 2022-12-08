@@ -13,6 +13,8 @@ from jux.config import EnvConfig, JuxBufferConfig
 from jux.map.position import Direction
 from jux.unit_cargo import ResourceType
 
+INT32_MAX = jnp.iinfo(jnp.int32).max
+
 
 class FactoryAction(IntEnum):
     DO_NOTHING = -1
@@ -38,6 +40,7 @@ class FactoryAction(IntEnum):
 
 
 class UnitActionType(IntEnum):
+    DO_NOTHING = -1
     MOVE = 0
     TRANSFER = 1
     PICKUP = 2
@@ -67,7 +70,7 @@ class UnitAction(NamedTuple):
 
     @property
     def repeat(self):
-        return jnp.array(self.code[..., 4], jnp.bool_)
+        return self.code[..., 4]
 
     @property
     def dist(self):
@@ -107,6 +110,10 @@ class UnitAction(NamedTuple):
         return cls(jnp.array([UnitActionType.RECHARGE, 0, 0, amount, repeat], jnp.int32))
 
     @classmethod
+    def do_nothing(cls) -> "UnitAction":
+        return cls(jnp.array([UnitActionType.DO_NOTHING, 0, 0, 0, 0], jnp.int32))
+
+    @classmethod
     def from_lux(cls, lux_action: LuxAction) -> "UnitAction":
         code: np.ndarray = lux_action.state_dict()
         assert code.shape == (5, ), f"Invalid UnitAction action code: {code}"
@@ -119,13 +126,13 @@ class UnitAction(NamedTuple):
         return isinstance(__o, UnitAction) and jnp.array_equal(self.code, __o.code)
 
     def is_valid(self, max_transfer_amount) -> bool:
-        min = jnp.array([0, 0, 0, 0, False])
+        min = jnp.array([0, 0, 0, 0, -1])
         max = jnp.array([
             len(UnitActionType) - 1,
             len(Direction) - 1,
             len(ResourceType) - 1,
             max_transfer_amount,
-            True,
+            INT32_MAX,
         ])
         return ((self.code >= min) & (self.code <= max)).all(-1)
 
@@ -165,8 +172,8 @@ class ActionQueue(NamedTuple):
     def capacity(self):
         return self.data.shape[-2]
 
-    def push(self, action: UnitAction) -> "ActionQueue":
-        """Push an action into the queue. There is no way to thrown an error in jitted function. It is user's responsibility to check if the queue is full.
+    def push_back(self, action: UnitAction) -> "ActionQueue":
+        """Push an action into the back of the queue. There is no way to thrown an error in jitted function. It is user's responsibility to check if the queue is full.
 
         Args:
             action (UnitAction): action to push into.
@@ -186,6 +193,35 @@ class ActionQueue(NamedTuple):
             rear = (self.rear + 1) % self.capacity
             count = self.count + 1
             return ActionQueue(data, self.front, rear, count)
+
+        return jax.lax.cond(
+            self.is_full(),
+            lambda _: self,
+            _push,
+            action,
+        )
+
+    def push_front(self, action: UnitAction) -> "ActionQueue":
+        """Push an action into the front of the queue. There is no way to thrown an error in jitted function. It is user's responsibility to check if the queue is full.
+
+        Args:
+            action (UnitAction): action to push into.
+
+        Returns:
+            ActionQueue: Updated queue.
+        """
+
+        # if self.is_full():
+        #     raise ValueError("ActionQueue is full")
+
+        # There is no way to thrown an error in jitted function.
+        # It is user's responsibility to check if the queue is full.
+        # TODO: design an error code?
+        def _push(action: UnitAction):
+            front = (self.front - 1 + self.capacity) % self.capacity
+            data = self.data.at[..., front, :].set(action.code)
+            count = self.count + 1
+            return ActionQueue(data, front, self.rear, count)
 
         return jax.lax.cond(
             self.is_full(),
