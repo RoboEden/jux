@@ -91,32 +91,32 @@ class TestState(chex.TestCase):
 
             return jux_state, lux_state
 
-        # # warm up jit, for profile only
-        # state___eq___jitted(jux_state, jux_state)
-        # state_step_late_game(jux_state, JuxAction.empty(jux_state.env_cfg, buf_cfg))
-
         def assert_state_eq(jux_state, lux_state):
             lux_state = State.from_lux(lux_state, buf_cfg)
             assert state___eq___jitted(jux_state, lux_state)
 
+        # # warm up jit, for profile only
+        # state___eq___jitted(jux_state, jux_state)
+        # state_step_late_game(jux_state, JuxAction.empty(jux_state.env_cfg, buf_cfg))
+
         # 4. real test starts here
-        # step 3 times
-        # it contains only 'move' and 'dig' actions for robots
+        # step 61 times
+        # it contains only move/dig/transfer/pickup actions for robots
         # For factory, it contains only 'build' actions
-        for i, act in zip(range(58), actions):
-            print(f"steps: {env.env_steps}")
-            jux_state, lux_state = step_both(jux_state, env, act)
-            assert_state_eq(jux_state, lux_state)
+        for i, act in zip(range(61), actions):
 
-        print(f"steps: {env.env_steps}")
-        act = next(actions)
-        jux_state, lux_state = step_both(jux_state, env, act)
-        assert_state_eq(jux_state, lux_state)
+            if env.env_steps % 10 == 0:
+                print(f"steps: {env.env_steps}")
+                jux_state = State.from_lux(env.state, buf_cfg)
+                jux_state, lux_state = step_both(jux_state, env, act)
+                assert_state_eq(jux_state, lux_state)
+            else:
+                env.step(act)
 
-        # for i, act in zip(range(100), actions):
-        #     print(f"steps: {env.env_steps}")
-        #     jux_state, lux_state = step_both(jux_state, env, act)
-        #     assert_state_eq(jux_state, lux_state)
+        # act = next(actions)
+        # print(f"steps: {env.env_steps}")
+        # jux_state, lux_state = step_both(jux_state, env, act)
+        # assert_state_eq(jux_state, lux_state)
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
     @pytest.mark.skip(reason="no way of currently testing this")

@@ -844,8 +844,8 @@ class State(NamedTuple):
         # check if metal is enough
         light_metal_cost = self.env_cfg.ROBOTS[UnitType.LIGHT].METAL_COST
         heavy_metal_cost = self.env_cfg.ROBOTS[UnitType.HEAVY].METAL_COST
-        is_build_light = is_build_light & (self.factories.power >= light_metal_cost)
-        is_build_heavy = is_build_heavy & (self.factories.power >= heavy_metal_cost)
+        is_build_light = is_build_light & (self.factories.cargo.metal >= light_metal_cost)
+        is_build_heavy = is_build_heavy & (self.factories.cargo.metal >= heavy_metal_cost)
 
         is_build = is_build_heavy | is_build_light
 
