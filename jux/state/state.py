@@ -76,6 +76,14 @@ class State(NamedTuple):
 
     global_id: int = jnp.int32(0)
 
+    @property
+    def real_env_steps(self):
+        return jnp.where(
+            self.env_cfg.BIDDING_SYSTEM,
+            self.env_steps - (self.board.factories_per_team * 2 + 1),
+            self.env_steps,
+        )
+
     @classmethod
     def from_lux(cls, lux_state: LuxState, buf_cfg: JuxBufferConfig) -> "State":
         with jax.default_device(jax.devices("cpu")[0]):
@@ -94,6 +102,7 @@ class State(NamedTuple):
                     len(lux_units['player_1']),
                 ]
                 u = Unit.empty(env_cfg)
+                assert n_units[0] <= buf_cfg.MAX_N_UNITS and n_units[1] <= buf_cfg.MAX_N_UNITS
                 units = (  # padding to length of buf_cfg.MAX_N_UNITS
                     units[0] + [u] * (buf_cfg.MAX_N_UNITS - n_units[0]),
                     units[1] + [u] * (buf_cfg.MAX_N_UNITS - n_units[1]),
@@ -120,6 +129,7 @@ class State(NamedTuple):
                     len(lux_factories['player_0']),
                     len(lux_factories['player_1']),
                 ]
+                assert n_factories[0] <= buf_cfg.MAX_N_FACTORIES and n_factories[1] <= buf_cfg.MAX_N_FACTORIES
                 f = Factory.empty()
                 factories = (  # padding to length of buf_cfg.MAX_N_FACTORIES
                     factories[0] + [f] * (buf_cfg.MAX_N_FACTORIES - n_factories[0]),
@@ -450,11 +460,7 @@ class State(NamedTuple):
 
     def _step_late_game(self, actions: JuxAction) -> 'State':
         # TODO
-        real_env_steps = jnp.where(
-            self.env_cfg.BIDDING_SYSTEM,
-            self.env_steps - (self.board.factories_per_team * 2 + 1),
-            self.env_steps,
-        )
+        real_env_steps = self.real_env_steps
         unit_mask = self.unit_mask
         factory_mask = self.factory_mask
 
@@ -1039,8 +1045,9 @@ class State(NamedTuple):
         return self, live_idx
 
     def _handle_recharge_actions(self, actions: UnitAction):
-        # TODO
-        return self, (actions.action_type == UnitActionType.RECHARGE)
+        is_recharge = (actions.action_type == UnitActionType.RECHARGE)
+        success = is_recharge & (self.units.power >= actions.amount)
+        return self, success
 
     def _handle_factory_water_actions(self, factory_actions: Array):
         # TODO: align with v1.1.1

@@ -1,6 +1,7 @@
 import gzip
 import json
 import os.path as osp
+import urllib.request
 from typing import Dict, Iterable
 
 import chex
@@ -29,6 +30,9 @@ def get_actions_from_replay(replay: dict) -> Iterable[Dict[str, Dict]]:
 def load_replay(replay: str = 'tests/replay.json.gz'):
     if osp.splitext(replay)[-1] == '.gz':
         with gzip.open(replay) as f:
+            replay = json.load(f)
+    elif replay.startswith('https://') or replay.startswith('http://'):
+        with urllib.request.urlopen(replay) as f:
             replay = json.load(f)
     else:
         with open(replay) as f:
@@ -113,10 +117,52 @@ class TestState(chex.TestCase):
             else:
                 env.step(act)
 
-        # act = next(actions)
-        # print(f"steps: {env.env_steps}")
-        # jux_state, lux_state = step_both(jux_state, env, act)
-        # assert_state_eq(jux_state, lux_state)
+    @chex.variants(with_jit=True, without_jit=True, with_device=True)
+    def test_recharge_action(self):
+        chex.clear_trace_counter()
+
+        # 1. function to be tested
+        state_step_late_game = self.variant(chex.assert_max_traces(n=1)(State._step_late_game))
+
+        # 2. prepare an environment
+        buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
+
+        env, actions = load_replay("https://www.kaggleusercontent.com/episodes/45715004.json")
+
+        # skip first several steps, since it contains no recharge action
+        while env.env_steps < 10 + 149:
+            act = next(actions)
+            env.step(act)
+
+        jux_state = State.from_lux(env.state, buf_cfg)
+
+        # 3. some helper functions
+
+        # step
+        def step_both(jux_state: State, env: LuxAI2022, lux_act):
+
+            jux_act = jux_state.parse_actions_from_dict(lux_act)
+            jux_state = state_step_late_game(jux_state, jux_act)
+            jnp.array(0).block_until_ready()
+
+            env.step(lux_act)
+            lux_state = env.state
+
+            return jux_state, lux_state
+
+        def assert_state_eq(jux_state, lux_state):
+            lux_state = State.from_lux(lux_state, buf_cfg)
+            assert state___eq___jitted(jux_state, lux_state)
+
+        # # warm up jit, for profile only
+        # state___eq___jitted(jux_state, jux_state)
+        # state_step_late_game(jux_state, JuxAction.empty(jux_state.env_cfg, buf_cfg))
+
+        # 4. real test starts here
+        for i, act in zip(range(10), actions):
+            print(f"steps: {env.env_steps}")
+            jux_state, lux_state = step_both(jux_state, env, act)
+            assert_state_eq(jux_state, lux_state)
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
     @pytest.mark.skip(reason="no way of currently testing this")
