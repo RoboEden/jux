@@ -552,14 +552,15 @@ class State(NamedTuple):
         self, suc = self._handle_dig_actions(unit_action, weather_cfg)
         success = success | suc
 
-        # self_destruct changes the unit order.
-        # In such case, success must be sort accordingly, so we need to pass in and out success.
-        # So does _handle_movement_actions. Movement may change the unit order because of collisions.
-        self, success = self._handle_self_destruct_actions(unit_action, success)
+        # self_destruct changes the unit order. In such case, success and
+        # unit_action must be sort accordingly, so we need to pass in and out
+        # success and unit_action. So does _handle_movement_actions. Movement
+        # may change the unit order because of collisions.
+        self, unit_action, success = self._handle_self_destruct_actions(unit_action, success)
 
         self = self._handle_factory_build_actions(factory_actions, weather_cfg)
 
-        self, success = self._handle_movement_actions(unit_action, weather_cfg, success)
+        self, unit_action, success = self._handle_movement_actions(unit_action, weather_cfg, success)
 
         self, suc = self._handle_recharge_actions(unit_action)
         success = success | suc
@@ -838,9 +839,10 @@ class State(NamedTuple):
         )
         return new_self, success
 
-    def _handle_self_destruct_actions(self, actions: UnitAction, success: Array) -> Tuple['State', Array]:
+    def _handle_self_destruct_actions(self, actions: UnitAction, success: Array) -> Tuple['State', UnitAction, Array]:
         # TODO
-        return self, success | (actions.action_type == UnitActionType.SELF_DESTRUCT)
+        success = success | (actions.action_type == UnitActionType.SELF_DESTRUCT)
+        return self, actions, success
 
     def _handle_factory_build_actions(self: 'State', factory_actions: Array, weather_cfg: Dict[str, np.ndarray]):
         factory_mask = self.factory_mask
@@ -906,7 +908,7 @@ class State(NamedTuple):
         )
 
     def _handle_movement_actions(self, actions: UnitAction, weather_cfg: Dict[str, np.ndarray],
-                                 success: Array) -> Tuple['State', Array]:
+                                 success: Array) -> Tuple['State', UnitAction, Array]:
         # TODO: align with v1.1.1
         unit_mask = self.unit_mask
         player_id = jnp.array([0, 1])[..., None]
@@ -997,10 +999,19 @@ class State(NamedTuple):
         self = self._replace(units=units)
         self, live_idx = self.destroy_unit(dead)
 
+        unit_mask = self.unit_mask  # bool[2, U]
+
         success = success[jnp.arange(2)[:, None], live_idx]
         success = success & unit_mask
 
-        return self, success
+        actions = UnitAction(
+            jnp.where(
+                unit_mask[..., None],
+                actions.code[jnp.arange(2)[:, None], live_idx],
+                UnitAction.do_nothing().code,
+            ))
+
+        return self, actions, success
 
     def destroy_unit(self, dead: Array) -> Tuple['State', Array]:
         '''

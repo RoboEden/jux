@@ -206,7 +206,7 @@ class TestState(chex.TestCase):
         # 4. real test starts here
 
         # step util end
-        for i, act in zip(range(290), actions):
+        for i, act in zip(range(300), actions):
             if env.env_steps % 10 == 0:
                 print(f"steps: {env.env_steps}")
                 jux_state = State.from_lux(env.state, buf_cfg)
