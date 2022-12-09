@@ -71,7 +71,7 @@ class Unit(NamedTuple):
     @classmethod
     def empty(cls, env_cfg: EnvConfig):
         return cls(
-            unit_type=UnitType.LIGHT,
+            unit_type=jnp.int32(UnitType.LIGHT),
             unit_cfg=env_cfg.ROBOTS[UnitType.LIGHT],
             action_queue=ActionQueue.empty(env_cfg.UNIT_ACTION_QUEUE_SIZE),
         )

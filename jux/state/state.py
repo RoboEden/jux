@@ -1036,6 +1036,10 @@ class State(NamedTuple):
             units.pos.x,
             units.pos.y,
         )].min(jnp.where(dead, 0, INT32_MAX), mode='drop')
+        lichen_strains = self.board.lichen_strains.at[(
+            units.pos.x,
+            units.pos.y,
+        )].max(jnp.where(dead, INT32_MAX, -1), mode='drop')
 
         # remove dead units, put them into the end of the array
         is_alive = ~dead & unit_mask
@@ -1060,6 +1064,7 @@ class State(NamedTuple):
         board = board._replace(
             map=board.map._replace(rubble=rubble),
             lichen=lichen,
+            lichen_strains=lichen_strains,
         )
 
         self = self._replace(
@@ -1152,6 +1157,10 @@ class State(NamedTuple):
 
         # 1. calculate strain connections.
         color = jnp.minimum(self.board.lichen_strains, self.board.factory_occupancy_map)  # int[H, W]
+
+        # handle a corner case where there may be rubbles on strains when movement collision happens.
+        color = jnp.where(self.board.rubble == 0, color, INT32_MAX)
+
         neighbor_color = color.at[(
             neighbor_ij[:, 0],
             neighbor_ij[:, 1],

@@ -65,17 +65,18 @@ class TestState(chex.TestCase):
         jux_state = State.from_lux(lux_state, buf_cfg)
         assert jux_state == State.from_lux(jux_state.to_lux(), buf_cfg)
 
-    @chex.variants(with_jit=True, without_jit=True, with_device=True)
     def test_step_late_game(self):
         chex.clear_trace_counter()
 
         # 1. function to be tested
-        state_step_late_game = self.variant(chex.assert_max_traces(n=1)(State._step_late_game))
+        state_step_late_game = jax.jit(chex.assert_max_traces(n=1)(State._step_late_game))
 
         # 2. prepare an environment
-        buf_cfg = JuxBufferConfig(MAX_N_UNITS=30)
-        env, actions = load_replay('tests/replay-45702251.json.gz')
-        while env.env_steps < 10:
+        buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
+        env, actions = load_replay('https://www.kaggleusercontent.com/episodes/45715004.json')
+
+        # skip early stage
+        while env.env_steps < 5:
             act = next(actions)
             env.step(act)
 
@@ -99,23 +100,15 @@ class TestState(chex.TestCase):
             lux_state = State.from_lux(lux_state, buf_cfg)
             assert state___eq___jitted(jux_state, lux_state)
 
-        # # warm up jit, for profile only
-        # state___eq___jitted(jux_state, jux_state)
-        # state_step_late_game(jux_state, JuxAction.empty(jux_state.env_cfg, buf_cfg))
+        # warm up jit, for profile only
+        state___eq___jitted(jux_state, jux_state)
+        state_step_late_game(jux_state, JuxAction.empty(jux_state.env_cfg, buf_cfg))
 
         # 4. real test starts here
-        # step 61 times
-        # it contains only move/dig/transfer/pickup actions for robots
-        # For factory, it contains only 'build' actions
-        for i, act in zip(range(61), actions):
-
-            if env.env_steps % 10 == 0:
-                print(f"steps: {env.env_steps}")
-                jux_state = State.from_lux(env.state, buf_cfg)
-                jux_state, lux_state = step_both(jux_state, env, act)
-                assert_state_eq(jux_state, lux_state)
-            else:
-                env.step(act)
+        for i, act in enumerate(actions):
+            print(f"steps: {env.env_steps}")
+            jux_state, lux_state = step_both(jux_state, env, act)
+        assert_state_eq(jux_state, lux_state)
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
     def test_recharge_action(self):

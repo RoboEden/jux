@@ -139,9 +139,9 @@ class UnitAction(NamedTuple):
 
 class ActionQueue(NamedTuple):
     data: Array  # int[UNIT_ACTION_QUEUE_SIZE, 5]
-    front: int = 0
-    rear: int = 0
-    count: int = 0
+    front: int = jnp.int32(0)
+    rear: int = jnp.int32(0)
+    count: int = jnp.int32(0)
 
     @staticmethod
     def empty(capacity: int) -> "ActionQueue":
