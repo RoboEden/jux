@@ -165,7 +165,6 @@ class TestState(chex.TestCase):
             assert_state_eq(jux_state, lux_state)
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
-    @pytest.mark.skip(reason="no way of currently testing this")
     def test_step_factory_water(self):
         chex.clear_trace_counter()
 
@@ -173,10 +172,10 @@ class TestState(chex.TestCase):
         state_step_late_game = self.variant(chex.assert_max_traces(n=1)(State._step_late_game))
 
         # 2. prepare an environment
-        buf_cfg = JuxBufferConfig(MAX_N_UNITS=30)
-        env, actions = load_replay()
+        buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
+        env, actions = load_replay("https://www.kaggleusercontent.com/episodes/45715004.json")
         # The first 905 steps do not contains any FactoryAction.Water, so we skip them.
-        while env.env_steps < 905:
+        while env.env_steps < 435:
             act = next(actions)
             env.step(act)
 
@@ -196,9 +195,9 @@ class TestState(chex.TestCase):
 
             return jux_state, lux_state
 
-        # warm up jit
-        state___eq___jitted(jux_state, jux_state)
-        state_step_late_game(jux_state, JuxAction.empty(jux_state.env_cfg, buf_cfg))
+        # # warm up jit
+        # state___eq___jitted(jux_state, jux_state)
+        # state_step_late_game(jux_state, JuxAction.empty(jux_state.env_cfg, buf_cfg))
 
         def assert_state_eq(jux_state, lux_state):
             lux_state = State.from_lux(lux_state, buf_cfg)
@@ -207,7 +206,7 @@ class TestState(chex.TestCase):
         # 4. real test starts here
 
         # step util end
-        for i, act in enumerate(actions):
+        for i, act in zip(range(290), actions):
             if env.env_steps % 10 == 0:
                 print(f"steps: {env.env_steps}")
                 jux_state = State.from_lux(env.state, buf_cfg)

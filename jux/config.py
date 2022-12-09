@@ -58,11 +58,11 @@ class EnvConfig(NamedTuple):
 
     MAX_RUBBLE: int = 100
     FACTORY_RUBBLE_AFTER_DESTRUCTION: int = 50
-    INIT_WATER_METAL_PER_FACTORY: int = 100  # amount of water and metal units given to each factory
-    INIT_POWER_PER_FACTORY: int = 100
+    INIT_WATER_METAL_PER_FACTORY: int = 150  # amount of water and metal units given to each factory
+    INIT_POWER_PER_FACTORY: int = 1000
 
     #### LICHEN ####
-    MIN_LICHEN_TO_SPREAD: int = 1
+    MIN_LICHEN_TO_SPREAD: int = 10
     LICHEN_LOST_WITHOUT_WATER: int = 1
     LICHEN_GAINED_WITH_WATER: int = 1
     MAX_LICHEN_PER_TILE: int = 100
@@ -101,7 +101,7 @@ class EnvConfig(NamedTuple):
             RUBBLE_MOVEMENT_COST=0,
             DIG_COST=5,
             SELF_DESTRUCT_COST=5,
-            DIG_RUBBLE_REMOVED=1,
+            DIG_RUBBLE_REMOVED=2,
             DIG_RESOURCE_GAIN=2,
             DIG_LICHEN_REMOVED=10,
             RUBBLE_AFTER_DESTRUCTION=1,
@@ -119,7 +119,7 @@ class EnvConfig(NamedTuple):
             RUBBLE_MOVEMENT_COST=1,
             DIG_COST=100,
             SELF_DESTRUCT_COST=100,
-            DIG_RUBBLE_REMOVED=10,
+            DIG_RUBBLE_REMOVED=20,
             DIG_RESOURCE_GAIN=20,
             DIG_LICHEN_REMOVED=100,
             RUBBLE_AFTER_DESTRUCTION=10,
@@ -135,14 +135,7 @@ class EnvConfig(NamedTuple):
         # Weather.NONE
         NONE=(),
         # Weather.MARS_QUAKE
-        MARS_QUAKE=jux.weather.MarsQuake(
-            # amount of rubble generated under each robot per turn
-            RUBBLE=(
-                1,  # UnitType.LIGHT
-                10,  # UnitType.HEAVY
-            ),
-            TIME_RANGE=(1, 5),
-        ),
+        MARS_QUAKE=jux.weather.MarsQuake(TIME_RANGE=(1, 5)),
         # Weather.COLD_SNAP
         COLD_SNAP=jux.weather.ColdSnap(
             # power multiplier required per robot action. 2 -> requires 2x as much power to execute the same action

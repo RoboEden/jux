@@ -11,6 +11,10 @@ class TestUnitConfig:
         jux_config = UnitConfig()
         assert jux_config == UnitConfig.from_lux(jux_config.to_lux())
 
+    def test_default(self):
+        assert LuxUnitConfig() == UnitConfig().to_lux()
+        assert UnitConfig() == UnitConfig.from_lux(LuxUnitConfig())
+
 
 class TestEnvConfig:
 
@@ -20,3 +24,7 @@ class TestEnvConfig:
 
         jux_config = EnvConfig()
         assert jux_config == EnvConfig.from_lux(jux_config.to_lux())
+
+    def test_default(self):
+        assert LuxEnvConfig() == EnvConfig().to_lux()
+        assert EnvConfig() == EnvConfig.from_lux(LuxEnvConfig())

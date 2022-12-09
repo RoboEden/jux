@@ -17,10 +17,6 @@ class Weather(IntEnum):
 
 
 class MarsQuake(NamedTuple):
-    RUBBLE: Tuple[int, int] = (
-        1,  # UnitType.LIGHT
-        10,  # UnitType.HEAVY
-    )
     TIME_RANGE: Tuple[int, int] = (1, 5)
 
     @classmethod
