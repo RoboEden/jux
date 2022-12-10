@@ -181,48 +181,54 @@ class TestState(chex.TestCase):
 
     def test_episode(self):
         chex.clear_trace_counter()
-        episode = '45731509'
+        cases = [
+            # Some steps are skipped because our implementation is not 100% the same as the official one.
+            # episode id and skip steps.
+            ('45731509', [177, 178, 238, 713, 734, 776, 821]),
+            ('45740668', [16, 25, 38]),
+            ('45740641', []),
+        ]
+        buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
 
         # 1. function to be tested
         state_step_late_game = jax.jit(chex.assert_max_traces(n=1)(State._step_late_game))
 
-        # 2. prepare an environment
-        buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
-        env, actions = jux.utils.load_replay(f'https://www.kaggleusercontent.com/episodes/{episode}.json')
+        for episode, skip_steps in cases:
+            # 2. prepare an environment
+            env, actions = jux.utils.load_replay(f'https://www.kaggleusercontent.com/episodes/{episode}.json')
 
-        # skip early stage
-        while env.env_steps < 10:
-            act = next(actions)
-            env.step(act)
-
-        lux_state = env.state
-        jux_state = State.from_lux(lux_state, buf_cfg)
-
-        # 3. some helper functions
-
-        # step
-        def step_both(jux_state: State, env: LuxAI2022, lux_act):
-
-            jux_act = jux_state.parse_actions_from_dict(lux_act)
-            jux_state = state_step_late_game(jux_state, jux_act)
-
-            env.step(lux_act)
-            lux_state = env.state
-
-            return jux_state, lux_state
-
-        def assert_state_eq(jux_state, lux_state):
-            lux_state = State.from_lux(lux_state, buf_cfg)
-            assert state___eq___jitted(jux_state, lux_state)
-
-        # 4. real test starts here
-        skip_steps = [177, 178, 238]
-        for i, act in zip(range(200), actions):
-            print(f"steps: {env.env_steps}")
-            if env.env_steps in skip_steps:
-                assert_state_eq(jux_state, lux_state)
+            # skip early stage
+            while env.env_steps < 11:
+                act = next(actions)
                 env.step(act)
-                jux_state = State.from_lux(env.state, buf_cfg)
-            else:
-                jux_state, lux_state = step_both(jux_state, env, act)
-                assert_state_eq(jux_state, lux_state)
+
+            lux_state = env.state
+            jux_state = State.from_lux(lux_state, buf_cfg)
+
+            # 3. some helper functions
+
+            # step
+            def step_both(jux_state: State, env: LuxAI2022, lux_act):
+
+                jux_act = jux_state.parse_actions_from_dict(lux_act)
+                jux_state = state_step_late_game(jux_state, jux_act)
+
+                env.step(lux_act)
+                lux_state = env.state
+
+                return jux_state, lux_state
+
+            def assert_state_eq(jux_state, lux_state):
+                lux_state = State.from_lux(lux_state, buf_cfg)
+                assert state___eq___jitted(jux_state, lux_state)
+
+            # 4. real test starts here
+            for i, act in enumerate(actions):
+                print(f"steps: {env.env_steps}")
+                if env.env_steps in skip_steps:
+                    assert_state_eq(jux_state, lux_state)
+                    env.step(act)
+                    jux_state = State.from_lux(env.state, buf_cfg)
+                else:
+                    jux_state, lux_state = step_both(jux_state, env, act)
+            assert_state_eq(jux_state, lux_state)

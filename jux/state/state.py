@@ -133,7 +133,7 @@ class State(NamedTuple):
         pass
 
     @classmethod
-    def from_lux(cls, lux_state: LuxState, buf_cfg: JuxBufferConfig) -> "State":
+    def from_lux(cls, lux_state: LuxState, buf_cfg: JuxBufferConfig = JuxBufferConfig()) -> "State":
         with jax.default_device(jax.devices("cpu")[0]):
             env_cfg = EnvConfig.from_lux(lux_state.env_cfg)
 
@@ -708,7 +708,6 @@ class State(NamedTuple):
         # pytype: enable=unsupported-operands
 
     def _handle_pickup_actions(self, actions: UnitAction) -> Tuple['State', Array]:
-        # TODO: align with v1.1.1
         there_is_a_factory = self.board.factory_occupancy_map[self.units.pos.x,
                                                               self.units.pos.y] != INT32_MAX  # bool[2, U]
         success = (UnitActionType.PICKUP == actions.action_type) & (there_is_a_factory)
@@ -786,6 +785,7 @@ class State(NamedTuple):
             real_pickup_amount[..., ResourceType.power],
             mode='drop',
         )  # int[2, U]
+        units_power = jnp.minimum(units_power, self.units.unit_cfg.BATTERY_CAPACITY)
         units_stock = self.units.cargo.stock.at[unit_team_idx, unit_idx].add(
             real_pickup_amount[..., :4],
             mode='drop',
@@ -1229,17 +1229,17 @@ class State(NamedTuple):
         neighbor_ij = neighbor_ij.at[3, 1, :, 0].set(0)
 
         # 1. calculate strain connections.
-        color = jnp.minimum(self.board.lichen_strains, self.board.factory_occupancy_map)  # int[H, W]
+        strains_and_factory = jnp.minimum(self.board.lichen_strains, self.board.factory_occupancy_map)  # int[H, W]
 
         # handle a corner case where there may be rubbles on strains when movement collision happens.
-        color = jnp.where(self.board.rubble == 0, color, INT32_MAX)
+        strains_and_factory = jnp.where(self.board.rubble == 0, strains_and_factory, INT32_MAX)
 
-        neighbor_color = color.at[(
+        neighbor_color = strains_and_factory.at[(
             neighbor_ij[:, 0],
             neighbor_ij[:, 1],
         )].get(mode='fill', fill_value=INT32_MAX)
 
-        connect_cond = ((color == neighbor_color) & (color != INT32_MAX))  # bool[4, H, W]
+        connect_cond = ((strains_and_factory == neighbor_color) & (strains_and_factory != INT32_MAX))  # bool[4, H, W]
 
         color = jux.map_generator.flood._flood_fill(jnp.where(connect_cond[:, None], neighbor_ij, ij))  # int[2, H, W]
         factory_color = color.at[:, self.factories.pos.x,
@@ -1258,9 +1258,9 @@ class State(NamedTuple):
                 (self.board.lichen_strains == INT32_MAX) & (self.board.factory_occupancy_map == INT32_MAX)
 
         # 2.2 when a non-lichen cell connects two different strains, then it is not allowed to expand to.
-        neighbor_lichen_strain = self.board.lichen_strains[neighbor_ij[:, 0], neighbor_ij[:, 1]]  # int[4, H, W]
+        neighbor_lichen_strain = strains_and_factory[neighbor_ij[:, 0], neighbor_ij[:, 1]]  # int[4, H, W]
         neighbor_is_lichen = neighbor_lichen_strain != INT32_MAX
-        center_connects_two_different_strains = (self.board.lichen_strains == INT32_MAX) & ( \
+        center_connects_two_different_strains = (strains_and_factory == INT32_MAX) & ( \
             ((neighbor_lichen_strain[0] != neighbor_lichen_strain[1]) & neighbor_is_lichen[0] & neighbor_is_lichen[1]) | \
             ((neighbor_lichen_strain[0] != neighbor_lichen_strain[2]) & neighbor_is_lichen[0] & neighbor_is_lichen[2]) | \
             ((neighbor_lichen_strain[0] != neighbor_lichen_strain[3]) & neighbor_is_lichen[0] & neighbor_is_lichen[3]) | \
