@@ -77,12 +77,60 @@ class State(NamedTuple):
     global_id: int = jnp.int32(0)
 
     @property
+    def MAX_N_FACTORIES(self):
+        self.factories.unit_id: Array
+        return self.factories.unit_id.shape[-1]
+
+    @property
+    def MAX_N_UNITS(self):
+        self.units.unit_id: Array
+        return self.units.unit_id.shape[-1]
+
+    @property
+    def UNIT_ACTION_QUEUE_SIZE(self):
+        self.units.action_queue.data: Array
+        return self.units.action_queue.data.shape[-2]
+
+    @property
+    def factory_idx(self):
+        factory_idx = jnp.array([
+            jnp.arange(self.MAX_N_FACTORIES),
+            jnp.arange(self.MAX_N_FACTORIES),
+        ])
+        return factory_idx
+
+    @property
+    def factory_mask(self):
+        factory_mask = self.factory_idx < self.n_factories[:, None]
+        chex.assert_shape(factory_mask, (2, self.MAX_N_FACTORIES))
+        return factory_mask
+
+    @property
+    def unit_idx(self):
+        unit_idx = jnp.array([
+            jnp.arange(self.MAX_N_UNITS),
+            jnp.arange(self.MAX_N_UNITS),
+        ])
+        return unit_idx
+
+    @property
+    def unit_mask(self):
+        unit_mask = self.unit_idx < self.n_units[:, None]
+        chex.assert_shape(unit_mask, (2, self.MAX_N_UNITS))
+        return unit_mask
+
+    @property
     def real_env_steps(self):
         return jnp.where(
             self.env_cfg.BIDDING_SYSTEM,
             self.env_steps - (self.board.factories_per_team * 2 + 1),
             self.env_steps,
         )
+
+    @classmethod
+    def new(seed: int, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig) -> "State":
+        # TODO
+        pass
 
     @classmethod
     def from_lux(cls, lux_state: LuxState, buf_cfg: JuxBufferConfig) -> "State":
@@ -343,49 +391,6 @@ class State(NamedTuple):
                 & teams_eq(self.teams, other.teams)
                 & factories_eq(self.factories, self.n_factories, other.factories, other.n_factories)
                 & units_eq(self.units, self.n_units, other.units, other.n_units))
-
-    @property
-    def MAX_N_FACTORIES(self):
-        self.factories.unit_id: Array
-        return self.factories.unit_id.shape[-1]
-
-    @property
-    def MAX_N_UNITS(self):
-        self.units.unit_id: Array
-        return self.units.unit_id.shape[-1]
-
-    @property
-    def UNIT_ACTION_QUEUE_SIZE(self):
-        self.units.action_queue.data: Array
-        return self.units.action_queue.data.shape[-2]
-
-    @property
-    def factory_idx(self):
-        factory_idx = jnp.array([
-            jnp.arange(self.MAX_N_FACTORIES),
-            jnp.arange(self.MAX_N_FACTORIES),
-        ])
-        return factory_idx
-
-    @property
-    def factory_mask(self):
-        factory_mask = self.factory_idx < self.n_factories[:, None]
-        chex.assert_shape(factory_mask, (2, self.MAX_N_FACTORIES))
-        return factory_mask
-
-    @property
-    def unit_idx(self):
-        unit_idx = jnp.array([
-            jnp.arange(self.MAX_N_UNITS),
-            jnp.arange(self.MAX_N_UNITS),
-        ])
-        return unit_idx
-
-    @property
-    def unit_mask(self):
-        unit_mask = self.unit_idx < self.n_units[:, None]
-        chex.assert_shape(unit_mask, (2, self.MAX_N_UNITS))
-        return unit_mask
 
     def parse_actions_from_dict(self, actions: Dict[str, Dict[str, Union[int, Array]]]) -> JuxAction:
         factory_action = np.empty((2, self.MAX_N_FACTORIES), dtype=np.int32)
