@@ -1042,6 +1042,7 @@ class State(NamedTuple):
             units.pos.x,
             units.pos.y,
         )].add(dead * self.units.unit_cfg.RUBBLE_AFTER_DESTRUCTION, mode='drop')
+        rubble = jnp.minimum(rubble, self.env_cfg.MAX_RUBBLE)
         lichen = self.board.lichen.at[(
             units.pos.x,
             units.pos.y,
@@ -1105,6 +1106,7 @@ class State(NamedTuple):
             occupancy.x,
             occupancy.y,
         )].add(dead[..., None] * self.env_cfg.FACTORY_RUBBLE_AFTER_DESTRUCTION, mode='drop')
+        rubble = jnp.minimum(rubble, self.env_cfg.MAX_RUBBLE)
 
         lichen = self.board.lichen.at[(
             occupancy.x,
