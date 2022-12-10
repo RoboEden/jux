@@ -8,7 +8,8 @@ from jax import Array
 from jax.experimental import checkify
 from luxai2022.state import State as LuxState
 
-import jux
+import jux.tree_util
+import jux.weather
 from jux.actions import FactoryAction, JuxAction, UnitAction, UnitActionType
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.factory import Factory, LuxFactory
@@ -564,7 +565,7 @@ class State(NamedTuple):
         # unit_action must be sort accordingly, so we need to pass in and out
         # success and unit_action. So does _handle_movement_actions. Movement
         # may change the unit order because of collisions.
-        self, unit_action, success = self._handle_self_destruct_actions(unit_action, success)
+        self, unit_action, success = self._handle_self_destruct_actions(unit_action, weather_cfg, success)
 
         self = self._handle_factory_build_actions(factory_actions, weather_cfg)
 
@@ -849,12 +850,33 @@ class State(NamedTuple):
         )
         return new_self, success
 
-    def _handle_self_destruct_actions(self, actions: UnitAction, success: Array) -> Tuple['State', UnitAction, Array]:
-        # TODO
-        success = success | (actions.action_type == UnitActionType.SELF_DESTRUCT)
+    def _handle_self_destruct_actions(
+        self,
+        actions: UnitAction,
+        weather_cfg: Dict[str, Union[int, float]],
+        success: Array,
+    ) -> Tuple['State', UnitAction, Array]:
+
+        power_cost = self.units.unit_cfg.SELF_DESTRUCT_COST * weather_cfg["power_loss_factor"]
+        dead = (actions.action_type == UnitActionType.SELF_DESTRUCT) & (self.units.power >= power_cost)
+
+        self, live_idx = self.destroy_unit(dead)
+
+        unit_mask = self.unit_mask  # bool[2, U]
+
+        success = success | dead
+        success = success[jnp.arange(2)[:, None], live_idx]
+        success = success & self.unit_mask
+
+        actions = UnitAction(
+            jnp.where(
+                unit_mask[..., None],
+                actions.code[jnp.arange(2)[:, None], live_idx],
+                UnitAction.do_nothing().code,
+            ))
         return self, actions, success
 
-    def _handle_factory_build_actions(self: 'State', factory_actions: Array, weather_cfg: Dict[str, np.ndarray]):
+    def _handle_factory_build_actions(self: 'State', factory_actions: Array, weather_cfg: Dict[str, Union[int, float]]):
         factory_mask = self.factory_mask
         player_id = jnp.array([0, 1])[..., None]
         is_build_heavy = (factory_actions == FactoryAction.BUILD_HEAVY) & factory_mask
@@ -917,7 +939,7 @@ class State(NamedTuple):
             global_id=self.global_id + n_new_units.sum(),
         )
 
-    def _handle_movement_actions(self, actions: UnitAction, weather_cfg: Dict[str, np.ndarray],
+    def _handle_movement_actions(self, actions: UnitAction, weather_cfg: Dict[str, Union[int, float]],
                                  success: Array) -> Tuple['State', UnitAction, Array]:
         # TODO: align with v1.1.1
         unit_mask = self.unit_mask
