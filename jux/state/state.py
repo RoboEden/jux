@@ -101,15 +101,18 @@ class State(NamedTuple):
                     len(lux_units['player_0']),
                     len(lux_units['player_1']),
                 ]
-                u = Unit.empty(env_cfg)
-                assert n_units[0] <= buf_cfg.MAX_N_UNITS and n_units[1] <= buf_cfg.MAX_N_UNITS
-                units = (  # padding to length of buf_cfg.MAX_N_UNITS
-                    units[0] + [u] * (buf_cfg.MAX_N_UNITS - n_units[0]),
-                    units[1] + [u] * (buf_cfg.MAX_N_UNITS - n_units[1]),
+                assert (n_units[0] <= buf_cfg.MAX_N_UNITS) and (n_units[1] <= buf_cfg.MAX_N_UNITS)
+                empty_unit = Unit.empty(env_cfg)
+                empty_unit = jax.tree_util.tree_map(lambda x: jnp.array(x)[None, ...], empty_unit)
+                padding_units = (  # padding to length of buf_cfg.max_units
+                    jax.tree_util.tree_map(lambda x: x.repeat(buf_cfg.MAX_N_UNITS - n_units[0], axis=0), empty_unit),
+                    jax.tree_util.tree_map(lambda x: x.repeat(buf_cfg.MAX_N_UNITS - n_units[1], axis=0), empty_unit),
                 )
-                units: Unit = batch_into_leaf_jitted([  # batch into leaf
-                    batch_into_leaf_jitted(units[0]),
-                    batch_into_leaf_jitted(units[1]),
+                units: Unit = jux.tree_util.batch_into_leaf([  # batch into leaf
+                    jux.tree_util.concat_in_leaf([jux.tree_util.batch_into_leaf(units[0]), padding_units[0]])
+                    if n_units[0] > 0 else padding_units[0],
+                    jux.tree_util.concat_in_leaf([jux.tree_util.batch_into_leaf(units[1]), padding_units[1]])
+                    if n_units[1] > 0 else padding_units[1],
                 ])
                 n_units = jnp.array(n_units)
                 return units, n_units
@@ -129,7 +132,7 @@ class State(NamedTuple):
                     len(lux_factories['player_0']),
                     len(lux_factories['player_1']),
                 ]
-                assert n_factories[0] <= buf_cfg.MAX_N_FACTORIES and n_factories[1] <= buf_cfg.MAX_N_FACTORIES
+                assert (n_factories[0] <= buf_cfg.MAX_N_FACTORIES) and (n_factories[1] <= buf_cfg.MAX_N_FACTORIES)
                 f = Factory.empty()
                 factories = (  # padding to length of buf_cfg.MAX_N_FACTORIES
                     factories[0] + [f] * (buf_cfg.MAX_N_FACTORIES - n_factories[0]),

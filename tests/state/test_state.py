@@ -1,48 +1,15 @@
-import gzip
-import json
-import os.path as osp
-import urllib.request
-from typing import Dict, Iterable
-
 import chex
 import jax
 import jax.numpy as jnp
-import pytest
 from luxai2022 import LuxAI2022
 from luxai2022.state import State as LuxState
 from rich import print
 
+import jux
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.state import JuxAction, State
 
 jnp.set_printoptions(linewidth=500, threshold=10000)
-
-
-def get_actions_from_replay(replay: dict) -> Iterable[Dict[str, Dict]]:
-    for step in replay['steps'][1:]:
-        player_0, player_1 = step
-        yield {
-            'player_0': player_0['action'],
-            'player_1': player_1['action'],
-        }
-
-
-def load_replay(replay: str = 'tests/replay.json.gz'):
-    if osp.splitext(replay)[-1] == '.gz':
-        with gzip.open(replay) as f:
-            replay = json.load(f)
-    elif replay.startswith('https://') or replay.startswith('http://'):
-        with urllib.request.urlopen(replay) as f:
-            replay = json.load(f)
-    else:
-        with open(replay) as f:
-            replay = json.load(f)
-    seed = replay['configuration']['seed']
-    env = LuxAI2022()
-    env.reset(seed=seed)
-    actions = get_actions_from_replay(replay)
-
-    return env, actions
 
 
 def map_to_aval(pytree):
@@ -56,7 +23,7 @@ class TestState(chex.TestCase):
 
     def test_from_to_lux(self):
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=30)
-        env, actions = load_replay('tests/replay-45702251.json.gz')
+        env, actions = jux.utils.load_replay('tests/replay-45702251.json.gz')
         for i in range(10):
             action = next(actions)
             env.step(action)
@@ -69,11 +36,11 @@ class TestState(chex.TestCase):
         chex.clear_trace_counter()
 
         # 1. function to be tested
-        state_step_late_game = jax.jit(chex.assert_max_traces(n=1)(State._step_late_game))
+        _state_step_late_game = jax.jit(chex.assert_max_traces(n=1)(State._step_late_game))
 
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
-        env, actions = load_replay('https://www.kaggleusercontent.com/episodes/45715004.json')
+        env, actions = jux.utils.load_replay('https://www.kaggleusercontent.com/episodes/45715004.json')
 
         # skip early stage
         while env.env_steps < 5:
@@ -84,12 +51,16 @@ class TestState(chex.TestCase):
 
         # 3. some helper functions
 
+        # wrapper for profiling
+        def state_step_late_game(jux_state, jux_act):
+            return _state_step_late_game(jux_state, jux_act)
+
         # step
         def step_both(jux_state: State, env: LuxAI2022, lux_act):
 
             jux_act = jux_state.parse_actions_from_dict(lux_act)
-            jux_state = state_step_late_game(jux_state, jux_act)
-            jnp.array(0).block_until_ready()
+            jux_state = _state_step_late_game(jux_state, jux_act)
+            # jnp.array(0).block_until_ready()
 
             env.step(lux_act)
             lux_state = env.state
@@ -120,7 +91,7 @@ class TestState(chex.TestCase):
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
 
-        env, actions = load_replay("https://www.kaggleusercontent.com/episodes/45715004.json")
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45715004.json")
 
         # skip first several steps, since it contains no recharge action
         while env.env_steps < 10 + 149:
@@ -166,7 +137,7 @@ class TestState(chex.TestCase):
 
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
-        env, actions = load_replay("https://www.kaggleusercontent.com/episodes/45715004.json")
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45715004.json")
         # The first 905 steps do not contains any FactoryAction.Water, so we skip them.
         while env.env_steps < 435:
             act = next(actions)
