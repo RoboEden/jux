@@ -264,3 +264,17 @@ class Board(NamedTuple):
         pos = units.pos
         units_map = units_map.at[pos.x, pos.y].set(units.unit_id, mode='drop')
         return self._replace(units_map=units_map)
+
+    def update_factories_map(self, factories) -> 'Board':
+        factory_map = jnp.full_like(self.factory_map, fill_value=INT32_MAX)
+        pos = factories.pos
+        factory_map = factory_map.at[pos.x, pos.y].set(factories.unit_id, mode='drop')
+
+        factory_occupancy_map = jnp.full_like(self.factory_occupancy_map, fill_value=INT32_MAX)
+        occupancy = factories.occupancy
+        factory_occupancy_map = factory_occupancy_map.at[(
+            occupancy.x,
+            occupancy.y,
+        )].set(factories.unit_id[..., None], mode='drop')
+
+        return self._replace(factory_map=factory_map, factory_occupancy_map=factory_occupancy_map)

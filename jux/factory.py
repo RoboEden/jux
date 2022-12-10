@@ -6,7 +6,7 @@ from luxai2022.factory import Factory as LuxFactory
 from luxai2022.team import Team as LuxTeam
 
 from jux.config import EnvConfig
-from jux.map.position import Position
+from jux.map.position import Position, direct2delta_xy
 from jux.unit import ResourceType, Unit, UnitCargo
 
 INT32_MAX = jnp.iinfo(jnp.int32).max
@@ -20,6 +20,14 @@ class Factory(NamedTuple):
     power: int = jnp.int32(0)
     cargo: UnitCargo = UnitCargo()  # int[4]
     num_id: int = INT32_MAX
+
+    @property
+    def occupancy(self) -> Position:
+        edge_pos = self.pos.pos[..., None, :] + direct2delta_xy[1:]  # [4, 2]
+        corner_pos = edge_pos + direct2delta_xy[[2, 3, 4, 1], ]  # [4, 2]
+        occupy = jnp.concatenate([self.pos.pos[..., None, :], edge_pos, corner_pos], axis=-2)  # [9, 2]
+        occupy = Position(occupy)
+        return occupy
 
     # action_queue # Do we need action queue for factories?
     @classmethod

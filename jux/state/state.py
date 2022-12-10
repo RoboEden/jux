@@ -593,9 +593,11 @@ class State(NamedTuple):
         water_cost = self.env_cfg.FACTORY_WATER_CONSUMPTION * self.factory_mask
         stock = factory.cargo.stock.at[..., ResourceType.water].add(-water_cost)
         factory = factory._replace(cargo=factory.cargo._replace(stock=stock))
+
+        # destroy factories without water
         factories_to_destroy = (factory.cargo.water < 0)  # noqa
-        # TODO: destroy factories
         self = self._replace(factories=factory)
+        self = self.destroy_factories(factories_to_destroy)
 
         # power gain
         def _gain_power(self: 'State') -> Unit:
@@ -1082,6 +1084,69 @@ class State(NamedTuple):
             board=board,
         )
         return self, live_idx
+
+    def destroy_factories(self, dead: Array) -> 'State':
+        '''
+        Destroy dead factories, and put them into the end of the array.
+
+        Args:
+            dead: bool[2, F], dead indicator.
+
+        Returns:
+            new_state: State.
+        '''
+        factory_mask = self.factory_mask  # bool[2, F]
+        factories = self.factories
+
+        # add rubble to the board, and remove lichen
+        occupancy = factories.occupancy
+
+        rubble = self.board.rubble.at[(
+            occupancy.x,
+            occupancy.y,
+        )].add(dead[..., None] * self.env_cfg.FACTORY_RUBBLE_AFTER_DESTRUCTION, mode='drop')
+
+        lichen = self.board.lichen.at[(
+            occupancy.x,
+            occupancy.y,
+        )].min(jnp.where(dead[..., None], 0, INT32_MAX), mode='drop')
+        lichen_strains = self.board.lichen_strains.at[(
+            occupancy.x,
+            occupancy.y,
+        )].max(jnp.where(dead[..., None], INT32_MAX, -1), mode='drop')
+
+        # remove dead factories, put them into the end of the array
+        is_alive = ~dead & factory_mask
+        factory_idx = jnp.where(is_alive, self.factory_idx, INT32_MAX)
+        live_idx = jnp.argsort(factory_idx)
+
+        empty_factory = jax.tree_map(
+            lambda x: jnp.array(x)[None, None],
+            Factory.empty(),
+        )
+
+        factories = jux.tree_util.tree_where(dead, empty_factory, factories)
+        factories = jax.tree_map(lambda x: x[jnp.arange(2)[:, None], live_idx], factories)
+
+        # update other states
+        n_factories = self.n_factories - dead.sum(axis=1)
+        factory_id2idx = State.generate_factory_id2idx(factories, self.MAX_N_FACTORIES)
+
+        # update board
+        board = self.board.update_factories_map(factories)
+        board = board._replace(
+            map=board.map._replace(rubble=rubble),
+            lichen=lichen,
+            lichen_strains=lichen_strains,
+        )
+
+        self = self._replace(
+            factories=factories,
+            n_factories=n_factories,
+            factory_id2idx=factory_id2idx,
+            board=board,
+        )
+        return self
 
     def _handle_recharge_actions(self, actions: UnitAction):
         is_recharge = (actions.action_type == UnitActionType.RECHARGE)
