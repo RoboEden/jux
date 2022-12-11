@@ -137,7 +137,6 @@ def generate_weather_schedule(key: jax.random.PRNGKey, env_cfg: Any):
                                     minval=env_cfg.NUM_WEATHER_EVENTS_RANGE[0],
                                     maxval=env_cfg.NUM_WEATHER_EVENTS_RANGE[1] + 1)
     # last_event_end_step = 0
-    # TODO - make a smarter algorithm to speed up the generation here
     available_times = jnp.arange(env_cfg.max_episode_length) < (env_cfg.max_episode_length - 30)
     schedule = jnp.zeros(env_cfg.max_episode_length, dtype=jnp.int32)
     time_ranges = jnp.array((

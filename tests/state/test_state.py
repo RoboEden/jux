@@ -182,13 +182,14 @@ class TestState(chex.TestCase):
     def test_episode(self):
         chex.clear_trace_counter()
         cases = [
-            # Some steps are skipped because our implementation is not 100% the same as the official one.
+            # Some steps are skipped because of bugs in the official one.
             # episode id and skip steps.
-            ('45731509', [177, 178, 238, 713, 734, 776, 821]),
-            ('45740668', [16, 25, 38]),
+            ('45731509', [177, 178, 238]),  # 177, 178, 238, 713, 734, 776, 821
+            ('45740668', [25]),  # 16, 25, 38
             ('45740641', []),
-            ('45742163', [248, 296, 297, 392]),
+            ('45742163', [248, 297, 392]),  # 248, 296, 297, 392
             ('45742007', []),
+            ('45750090', [])
         ]
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
 
@@ -196,6 +197,7 @@ class TestState(chex.TestCase):
         state_step_late_game = jax.jit(chex.assert_max_traces(n=1)(State._step_late_game))
 
         for episode, skip_steps in cases:
+            print(f"episode: {episode}")
             # 2. prepare an environment
             env, actions = jux.utils.load_replay(f'https://www.kaggleusercontent.com/episodes/{episode}.json')
 
