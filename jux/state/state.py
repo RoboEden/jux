@@ -5,7 +5,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-from jax.experimental import checkify
 from luxai2022.state import State as LuxState
 
 import jux.tree_util
@@ -47,7 +46,7 @@ class State(NamedTuple):
     weather_schedule: Array
 
     units: Unit  # Unit[2, MAX_N_UNITS], the unit_id and team_id of non-existent units are jnp.iinfo(jnp.int32).max
-    unit_id2idx: Array  # [2 * MAX_N_UNITS, 2], the idx of non-existent units is jnp.iinfo(jnp.int32).max
+    unit_id2idx: Array  # [MAX_GLOBAL_ID, 2], the idx of non-existent units is jnp.iinfo(jnp.int32).max
     n_units: Array  # int[2]
     '''
     The `unit_id2idx` is organized such that
@@ -76,6 +75,7 @@ class State(NamedTuple):
     teams: Team  # Team[2]
 
     global_id: int = jnp.int32(0)
+    place_first: int = jnp.int32(0)  # 0/1, the player to place first
 
     @property
     def MAX_N_FACTORIES(self):
@@ -91,6 +91,10 @@ class State(NamedTuple):
     def UNIT_ACTION_QUEUE_SIZE(self):
         self.units.action_queue.data: Array
         return self.units.action_queue.data.shape[-2]
+
+    @property
+    def MAX_GLOBAL_ID(self):
+        return self.unit_id2idx.shape[-2]
 
     @property
     def factory_idx(self):
@@ -167,7 +171,7 @@ class State(NamedTuple):
                 return units, n_units
 
             units, n_units = convert_units(lux_state.units)
-            unit_id2idx = State.generate_unit_id2idx(units, buf_cfg.MAX_N_UNITS)
+            unit_id2idx = State.generate_unit_id2idx(units, buf_cfg.MAX_GLOBAL_ID)
 
             # convert factories
             def convert_factories(lux_factories: LuxFactory) -> Tuple[Factory, Array]:
@@ -222,14 +226,15 @@ class State(NamedTuple):
         return state
 
     @staticmethod
-    def generate_unit_id2idx(units: Unit, max_n_units: int) -> Array:
+    def generate_unit_id2idx(units: Unit, max_global_id: int) -> Array:
         '''
         organize unit_id2idx such that
             unit_id2idx[unit_id] == [team_id, unit_idx]
             units[team_id, unit_idx].unit_id == unit_id
         '''
         units.unit_id: Array
-        unit_id2idx = jnp.ones((max_n_units * 2, 2), dtype=np.int32) * jnp.iinfo(np.int32).max
+        max_n_units = units.unit_id.shape[-1]
+        unit_id2idx = jnp.ones((max_global_id, 2), dtype=np.int32) * jnp.iinfo(np.int32).max
         unit_id2idx = unit_id2idx.at[units.unit_id[..., 0, :]].set(
             jnp.array([
                 0 * jnp.ones(max_n_units, dtype=np.int32),
@@ -462,9 +467,29 @@ class State(NamedTuple):
 
     #     return self
 
-    def _step_early_game(self, actions: JuxAction) -> 'State':
+    def _bid_step(self, bid: Array) -> 'State':
+        """The initial bidding step.
+
+        Args:
+            bid (Array): int[2], two players' bid.
+
+        Returns:
+            State: new game state
+        """
         # TODO
-        checkify.check(False, "not implemented")
+        return self
+
+    def _factory_placement_step(self, position) -> 'State':
+        """The early game step for factory placement.
+
+        Args:
+            actions (Array): int[2, 2], two players' factory placement.
+                Only one of position[0] and position[1] is valid, depending on the current player.
+
+        Returns:
+            State: new game state.
+        """
+        # TODO
         return self
 
     def _step_late_game(self, actions: JuxAction) -> 'State':
@@ -983,7 +1008,7 @@ class State(NamedTuple):
         return self._replace(
             units=new_units,
             n_units=new_n_units,
-            unit_id2idx=State.generate_unit_id2idx(new_units, self.MAX_N_UNITS),
+            unit_id2idx=State.generate_unit_id2idx(new_units, self.MAX_GLOBAL_ID),
             board=self.board.update_units_map(new_units),
             global_id=self.global_id + n_new_units.sum(),
         )
@@ -1133,7 +1158,7 @@ class State(NamedTuple):
 
         # update other states
         n_units = self.n_units - dead.sum(axis=1)
-        unit_id2idx = State.generate_unit_id2idx(units, self.MAX_N_UNITS)
+        unit_id2idx = State.generate_unit_id2idx(units, self.MAX_GLOBAL_ID)
 
         # update board
         board = self.board.update_units_map(units)

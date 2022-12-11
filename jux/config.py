@@ -192,5 +192,6 @@ default = EnvConfig()
 
 class JuxBufferConfig(NamedTuple):
     MAX_N_UNITS: int = 1000
+    MAX_GLOBAL_ID: int = 1000 * 2
     MAX_N_FACTORIES: int = default.MAX_FACTORIES + 1
     MAX_MAP_SIZE: int = default.map_size
