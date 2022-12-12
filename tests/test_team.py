@@ -17,8 +17,8 @@ class TestTeam:
         lux_team = LuxTeam(0, 'player_0', LuxFactionTypes.AlphaStrike)
         assert lux_team_eq(
             lux_team,
-            Team.from_lux(lux_team, buf_cfg).to_lux(),
+            Team.from_lux(lux_team, buf_cfg).to_lux(lux_team.place_first),
         )
 
         jux_team = Team.new(0, FactionTypes.FirstMars, buf_cfg)
-        assert jux_team == Team.from_lux(jux_team.to_lux(), buf_cfg)
+        assert jux_team == Team.from_lux(jux_team.to_lux(lux_team.place_first), buf_cfg)

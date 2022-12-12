@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import List, NamedTuple, Tuple
+from typing import Dict, List, NamedTuple, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -9,9 +9,15 @@ from jax import Array
 from luxai2022.actions import Action as LuxAction
 from luxai2022.unit import UnitType as LuxUnitType
 
+import jux.torch
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.map.position import Direction
 from jux.unit_cargo import ResourceType
+
+try:
+    import torch
+except ImportError:
+    pass
 
 INT32_MAX = jnp.iinfo(jnp.int32).max
 
@@ -305,3 +311,117 @@ class JuxAction(NamedTuple):
             unit_action_queue_count=jnp.zeros((2, buf_cfg.MAX_N_UNITS), dtype=jnp.int32),
             unit_action_queue_update=jnp.zeros((2, buf_cfg.MAX_N_UNITS), dtype=jnp.bool_),
         )
+
+    @staticmethod
+    def from_lux(state, lux_action: Dict[str, Dict[str, Union[int, Array]]]) -> "JuxAction":
+        return state.parse_actions_from_dict(lux_action)
+
+    def to_lux(self: "JuxAction", state) -> Dict[str, Dict[str, Union[int, Array]]]:
+        """Convert `JuxAction` to dict format that can be passed into `LuxAI2022` object.
+
+        Args:
+            self (JuxAction): self
+            state (State): the current game state.
+
+        Returns:
+            Dict[str, Dict[str, Union[int, Array]]: A action dict like:
+            ```
+            {
+                'player_0': {
+                    'factory_0': 1,
+                    'factory_2': 2,
+                    'unit_7': [
+                        [0, 0, 0, 0, 0],
+                        [0, 3, 0, 0, 0],
+                    ],
+                    'unit_8': [
+                        [3, 0, 0, 0, 0],
+                        [5, 0, 0, 9, 0],
+                    ],
+                    ...
+                },
+                'player_1': {
+                    ...
+                },
+            }
+            ```
+        """
+        lux_action = {
+            'player_0': {},
+            'player_1': {},
+        }
+        self = jax.tree_map(lambda x: np.array(x), self)
+
+        # factory action
+        for p in range(2):
+            n_factories = int(state.n_factories[p])
+            for i in range(n_factories):
+                id, act = int(state.factories.unit_id[p, i]), int(self.factory_action[p, i])
+                if act != FactoryAction.DO_NOTHING:
+                    lux_action[f'player_{p}'][f'factory_{id}'] = act
+
+        # player action
+        for p in range(2):
+            n_units = int(state.n_units[p])
+            for i in range(n_units):
+                if self.unit_action_queue_update[p, i]:
+                    id = int(state.units.unit_id[p, i])
+                    queue = self.unit_action_queue.code[p, i, :self.unit_action_queue_count[p, i]].tolist()
+                    lux_action[f'player_{p}'][f'unit_{id}'] = queue
+        return lux_action
+
+    @staticmethod
+    def from_torch(
+            factory_action: 'torch.Tensor',  # int[2, MAX_N_FACTORIES]
+            unit_action_queue: 'torch.Tensor',  # int[2, MAX_N_UNITS, UNIT_ACTION_QUEUE_SIZE]
+            unit_action_queue_count: 'torch.Tensor',  # int[2, MAX_N_UNITS]
+            unit_action_queue_update: 'torch.Tensor',  # bool[2, MAX_N_UNITS]
+            # env_cfg: EnvConfig,
+            # buf_cfg: JuxBufferConfig,
+    ):
+        assert factory_action.dtype == torch.int32
+        assert unit_action_queue.dtype == torch.int32
+        assert unit_action_queue_count.dtype == torch.int32
+        assert unit_action_queue_update.dtype == torch.uint8
+
+        queue_size = unit_action_queue.shape[-2]
+        max_n_units = unit_action_queue_count.shape[-1]
+        max_n_factories = factory_action.shape[-1]
+        # assert queue_size == env_cfg.UNIT_ACTION_QUEUE_SIZE
+        # assert max_n_units == buf_cfg.MAX_N_UNITS
+        # assert max_n_factories == buf_cfg.MAX_N_FACTORIES
+
+        assert factory_action.shape[-2:] == (2, max_n_factories)
+        assert unit_action_queue.shape[-4:] == (2, max_n_units, queue_size, 5)
+        assert unit_action_queue_count.shape[-2:] == (2, max_n_units)
+        assert unit_action_queue_update.shape[-2:] == (2, max_n_units)
+
+        batch_shape = factory_action.shape[:-2]
+        assert factory_action.shape[:-2] == batch_shape
+        assert unit_action_queue.shape[:-4] == batch_shape
+        assert unit_action_queue_count.shape[:-2] == batch_shape
+        assert unit_action_queue_update.shape[:-2] == batch_shape
+
+        assert (unit_action_queue_count[unit_action_queue_update == False] == 0).all()
+        assert (unit_action_queue_count[unit_action_queue_update == True] <= queue_size).all()
+
+        factory_action = jux.torch.from_torch(factory_action)
+        unit_action_queue = jux.torch.from_torch(unit_action_queue)
+        unit_action_queue_count = jux.torch.from_torch(unit_action_queue_count)
+        unit_action_queue_update = jux.torch.from_torch(unit_action_queue_update)
+        unit_action_queue_update = unit_action_queue_update.astype(jnp.bool_)
+
+        return JuxAction(
+            factory_action=factory_action,
+            unit_action_queue=UnitAction(unit_action_queue),
+            unit_action_queue_count=unit_action_queue_count,
+            unit_action_queue_update=unit_action_queue_update,
+        )
+
+    def to_torch(self) -> 'JuxAction':
+        """Convert leaves of `JuxAction` to `torch.Tensor`.
+
+        Returns:
+            JuxAction: a JuxAction object with leaves converted to `torch.Tensor`.
+        """
+        return jax.tree_map(jux.torch.to_torch, self)

@@ -205,6 +205,11 @@ class State(NamedTuple):
             teams.sort(key=lambda team: team.team_id)
             teams: Team = batch_into_leaf_jitted(teams)
 
+            if lux_state.teams['player_0'].place_first:
+                place_first = jnp.int32(0)
+            else:
+                place_first = jnp.int32(1)
+
             state = State(
                 env_cfg=env_cfg,
                 seed=lux_state.seed,
@@ -220,6 +225,7 @@ class State(NamedTuple):
                 factory_id2idx=factory_id2idx,
                 teams=teams,
                 global_id=jnp.int32(lux_state.global_id),
+                place_first=place_first,
             )
         state = jax.device_put(state, jax.devices()[0])
         # state.check_id2idx()
@@ -301,7 +307,10 @@ class State(NamedTuple):
 
         # convert teams
         lux_teams: List[Team] = jux.tree_util.batch_out_of_leaf(self.teams)
-        lux_teams: Dict[str, LuxTeam] = {f"player_{team.team_id}": team.to_lux() for team in lux_teams}
+        lux_teams: Dict[str, LuxTeam] = {
+            f"player_{team.team_id}": team.to_lux(team.team_id == self.place_first)
+            for team in lux_teams
+        }
 
         # convert units
         def _to_lux_units(units: Unit, n_unit: int) -> Dict[str, LuxUnit]:
@@ -1411,3 +1420,16 @@ class State(NamedTuple):
         board = board._replace(map=map)
         self = self._replace(board=board)
         return self
+
+    def team_lichen_score(self: 'State') -> Array:
+        factory_id2idx = self.factory_id2idx
+
+        factory_lichen = jnp.zeros(factory_id2idx.shape[0], dtype=jnp.int32)  # int[2, F]
+        factory_lichen = factory_lichen.at[self.board.lichen_strains].add(self.board.lichen, mode='drop')  # int[2, F]
+
+        lichen_score = jnp.zeros((2, self.MAX_N_FACTORIES), dtype=jnp.int32).at[(
+            factory_id2idx[..., 0],
+            factory_id2idx[..., 1],
+        )].set(factory_lichen, mode='drop')
+
+        return lichen_score.sum(-1)  # int[2]

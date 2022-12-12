@@ -13,6 +13,11 @@ from jux.map_generator.generator import GameMap, MapType, SymmetryType
 
 INT32_MAX = jnp.iinfo(jnp.int32).max
 
+radius = 6
+delta_xy = jnp.mgrid[-radius:radius + 1, -radius:radius + 1]  # int[2, 13, 13]
+delta_xy = jnp.array(jnp.nonzero(jnp.abs(delta_xy[0]) + jnp.abs(delta_xy[1]) <= radius)).T  # int[85, 2]
+delta_xy = delta_xy - jnp.array([radius, radius])
+
 
 class Board(NamedTuple):
     '''
@@ -70,6 +75,12 @@ class Board(NamedTuple):
     type: int[height, width]
     '''
 
+    factory_pos: Array  # int[2 * MAX_N_FACTORIES, 2]
+    '''
+    cached factory positions, used for generate valid_spawn_mask. Only part of the array is valid.
+    Non valid part is filled with INT32_MAX.
+    '''
+
     @property
     def valid_spawn_mask(self) -> Array:  # bool[height, width]
         # valid_spawns_mask = np.ones((self.height, self.width), dtype=jnp.bool_)  # bool[height, width]
@@ -80,6 +91,12 @@ class Board(NamedTuple):
         valid_spawns_mask = valid_spawns_mask & jnp.roll(valid_spawns_mask, -1, axis=1)
         valid_spawns_mask = valid_spawns_mask.at[[0, -1], :].set(False)
         valid_spawns_mask = valid_spawns_mask.at[:, [0, -1]].set(False)
+
+        factory_overlap = self.factory_pos[..., None, :] + delta_xy  # int[2 * MAX_N_FACTORIES, 85, 2]
+        factory_overlap = factory_overlap.reshape(-1, 2)
+        factory_overlap = jnp.clip(factory_overlap, 0, jnp.array([self.height - 1, self.width - 1]))
+        valid_spawns_mask = valid_spawns_mask.at[factory_overlap[:, 0], factory_overlap[:, 1]].set(False, mode='drop')
+
         return valid_spawns_mask
 
     @classmethod
@@ -118,6 +135,7 @@ class Board(NamedTuple):
 
         factory_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
         factory_occupancy_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
+        factory_pos = jnp.full(shape=(2, buf_cfg.MAX_N_FACTORIES, 2), fill_value=INT32_MAX)
 
         return cls(
             height=height,
@@ -130,6 +148,7 @@ class Board(NamedTuple):
             units_map=units_map,
             factory_map=factory_map,
             factory_occupancy_map=factory_occupancy_map,
+            factory_pos=factory_pos,
         )
 
     @classmethod
@@ -163,6 +182,10 @@ class Board(NamedTuple):
         factory_occupancy_map = factory_occupancy_map.at[:height, :width].set(lux_board.factory_occupancy_map)
         factory_occupancy_map = factory_occupancy_map.at[factory_occupancy_map == -1].set(INT32_MAX)
 
+        factory_pos = jnp.full(shape=(buf_cfg.MAX_N_FACTORIES * 2, 2), fill_value=INT32_MAX, dtype=jnp.int32)
+        n_factory = len(xs)
+        factory_pos = factory_pos.at[:n_factory, :].set(jnp.array([xs, ys], jnp.int32).T)
+
         # put unit_id to map
         xs = []
         ys = []
@@ -191,6 +214,7 @@ class Board(NamedTuple):
             units_map=units_map,
             factory_map=factory_map,
             factory_occupancy_map=factory_occupancy_map,
+            factory_pos=factory_pos,
         )
 
     def to_lux(
@@ -277,4 +301,8 @@ class Board(NamedTuple):
             occupancy.y,
         )].set(factories.unit_id[..., None], mode='drop')
 
-        return self._replace(factory_map=factory_map, factory_occupancy_map=factory_occupancy_map)
+        return self._replace(
+            factory_map=factory_map,
+            factory_occupancy_map=factory_occupancy_map,
+            factory_pos=factories.pos.pos.reshape(-1, 2),
+        )

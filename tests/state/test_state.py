@@ -2,11 +2,10 @@ import chex
 import jax
 import jax.numpy as jnp
 from luxai2022 import LuxAI2022
-from luxai2022.state import State as LuxState
 from rich import print
 
-import jux
-from jux.config import EnvConfig, JuxBufferConfig
+import jux.utils
+from jux.config import JuxBufferConfig
 from jux.state import JuxAction, State
 
 jnp.set_printoptions(linewidth=500, threshold=10000)
@@ -186,10 +185,12 @@ class TestState(chex.TestCase):
             # episode id and skip steps.
             ('45731509', [177, 178, 238]),  # 177, 178, 238, 713, 734, 776, 821
             ('45740668', [25]),  # 16, 25, 38
-            ('45740641', []),
             ('45742163', [248, 297, 392]),  # 248, 296, 297, 392
-            ('45742007', []),
-            ('45750090', [])
+
+            # the following episodes are moved to tests/test_env.py.
+            # ('45740641', []),
+            # ('45742007', []),
+            # ('45750090', [])
         ]
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
 
@@ -236,3 +237,16 @@ class TestState(chex.TestCase):
                 else:
                     jux_state, lux_state = step_both(jux_state, env, act)
             assert_state_eq(jux_state, lux_state)
+
+    def test_team_lichen_score(self):
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45715004.json")
+        for act in actions:
+            _, lux_rewards, _, _ = env.step(act)
+        lux_rewards = jnp.array(list(lux_rewards.values()))
+
+        buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
+        jux_state = State.from_lux(env.state, buf_cfg)
+
+        jux_rewards = jux_state.team_lichen_score()
+
+        assert jnp.array_equal(jux_rewards, lux_rewards)

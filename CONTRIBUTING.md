@@ -16,7 +16,7 @@ If you are docker user, you can use [NVIDIA CUDA docker image](https://catalog.n
 Upgrade pip and install JUX in editable mode with optional-dependencies for `dev`.
 ```console
 $ pip install --upgrade pip
-$ pip install -e .[dev] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+$ pip install -e .[dev,torch] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 ## Setup pre-commit hooks

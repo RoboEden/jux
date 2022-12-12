@@ -91,7 +91,7 @@ class Team(NamedTuple):
             n_factory=n_factory,
         )
 
-    def to_lux(self) -> LuxTeam:
+    def to_lux(self, place_first: bool) -> LuxTeam:
         lux_team = LuxTeam(
             team_id=int(self.team_id),
             agent=f'player_{int(self.team_id)}',
@@ -101,6 +101,7 @@ class Team(NamedTuple):
         lux_team.init_metal = int(self.init_metal)
         lux_team.factories_to_place = int(self.factories_to_place)
         lux_team.factory_strains = self.factory_strains[:self.n_factory].tolist()
+        lux_team.place_first = place_first
         return lux_team
 
     def __eq__(self, __o: object) -> bool:

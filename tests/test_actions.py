@@ -3,15 +3,14 @@ from typing import List
 import chex
 import numpy as np
 from luxai2022 import actions as lux_actions
+from luxai2022.actions import Action as LuxAction
 
-import jux.actions
-from jux.actions import ActionQueue, FactoryAction, LuxAction, UnitAction
-from jux.config import EnvConfig, UnitConfig
+import jux.utils
+from jux.actions import ActionQueue, FactoryAction, JuxAction, UnitAction
+from jux.config import EnvConfig, JuxBufferConfig
 from jux.map.position import Direction
+from jux.state import State
 from jux.unit_cargo import ResourceType
-
-# fix a bug in the luxai2022.actions module
-lux_actions.FactoryWaterAction.state_dict = lambda self: 2
 
 
 class TestActions:
@@ -69,3 +68,29 @@ class TestActionQueue(chex.TestCase):
         lux_queue.append(lux_action)
         assert jux_queue == ActionQueue.from_lux(lux_queue, env_cfg.UNIT_ACTION_QUEUE_SIZE)
         assert lux_queue_eq(jux_queue.to_lux(), lux_queue)
+
+
+class TestJuxAction():
+
+    def test_to_from_lux_torch(self):
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45731509.json")
+        while env.env_steps < 100:
+            act = next(actions)
+            env.step(act)
+
+        lux_act = next(actions)
+
+        buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
+        jux_state = State.from_lux(env.state, buf_cfg)
+        jux_act = JuxAction.from_lux(jux_state, lux_act)
+
+        assert jux_act.to_lux(jux_state) == lux_act
+
+        torch_act = jux_act.to_torch()
+        jux_from_torch = JuxAction.from_torch(
+            torch_act.factory_action,
+            torch_act.unit_action_queue.code,
+            torch_act.unit_action_queue_count,
+            torch_act.unit_action_queue_update,
+        )
+        chex.assert_trees_all_equal(jux_from_torch, jux_act)

@@ -30,6 +30,12 @@
     # TODO: add documentation url
 
     [project.optional-dependencies]
+    torch = [
+        "torch",
+        "torchvision",
+        "torchaudio",
+    ]
+
     dev = [
         "toml",
         "pre-commit",
