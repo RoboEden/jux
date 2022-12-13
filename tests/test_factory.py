@@ -18,14 +18,12 @@ class TestFactory(chex.TestCase):
         pos: Array = Position()
         power: int = 10
         cargo: UnitCargo = UnitCargo()
-        num_id: int = 10
         return Factory(
             team_id=team_id,
             unit_id=unit_id,
             pos=pos,
             power=power,
             cargo=cargo,
-            num_id=num_id,
         )
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True, without_device=True)

@@ -133,9 +133,53 @@ class State(NamedTuple):
         )
 
     @classmethod
-    def new(seed: int, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig) -> "State":
+    def new(cls, seed: int, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig) -> "State":
         # TODO
-        pass
+        rng_state = jax.random.PRNGKey(seed)
+        env_steps = 0
+        board = Board.new(
+            seed=seed,
+            env_cfg=env_cfg,
+            buf_cfg=buf_cfg,
+        )
+        weather_schedule = jux.weather.generate_weather_schedule(
+            rng=rng_state,
+            env_cfg=env_cfg,
+        )
+        empty_unit = Unit.empty(env_cfg)
+        units = jax.tree_map(lambda x: x[None].repeat(buf_cfg.MAX_N_UNITS), empty_unit)
+        units = jax.tree_map(lambda x: x[None].repeat(2), units)
+        unit_id2idx = State.generate_unit_id2idx(units, buf_cfg.MAX_GLOBAL_ID)
+        n_units = jnp.zeros(shape=(2, ), dtype=jnp.int32)
+
+        factories = Factory.empty()
+        factories = jax.tree_map(lambda x: x[None].repeat(buf_cfg.MAX_N_FACTORIES), empty_unit)
+        factories = jax.tree_map(lambda x: x[None].repeat(2), factories)
+        factory_id2idx = State.generate_unit_id2idx(factories, buf_cfg.MAX_GLOBAL_ID)
+        n_factories = jnp.zeros(shape=(2, ), dtype=jnp.int32)
+
+        teams = jux.tree_util.batch_into_leaf([Team.new(
+            team_id=id,
+            faction=0,
+            buf_cfg=buf_cfg,
+        ) for id in range(2)])
+
+        state = cls(
+            env_cfg=env_cfg,
+            seed=seed,
+            rng_state=rng_state,
+            env_steps=env_steps,
+            board=board,
+            weather_schedule=weather_schedule,
+            units=units,
+            unit_id2idx=unit_id2idx,
+            n_units=n_units,
+            factories=factories,
+            factory_id2idx=factory_id2idx,
+            n_factories=n_factories,
+            teams=teams,
+        )
+        return state
 
     @classmethod
     def from_lux(cls, lux_state: LuxState, buf_cfg: JuxBufferConfig = JuxBufferConfig()) -> "State":
@@ -203,9 +247,11 @@ class State(NamedTuple):
 
             teams: List[Team] = [Team.from_lux(team, buf_cfg) for team in lux_state.teams.values()]
             teams.sort(key=lambda team: team.team_id)
+            if len(teams) == 0:
+                teams = [Team.new(0, 0, buf_cfg), Team.new(1, 0, buf_cfg)]
             teams: Team = batch_into_leaf_jitted(teams)
 
-            if lux_state.teams['player_0'].place_first:
+            if 'player_0' in lux_state.teams and lux_state.teams['player_0'].place_first:
                 place_first = jnp.int32(0)
             else:
                 place_first = jnp.int32(1)
@@ -476,29 +522,149 @@ class State(NamedTuple):
 
     #     return self
 
-    def _bid_step(self, bid: Array) -> 'State':
+    def _bid_step(self, bid: Array, faction: Array) -> 'State':
         """The initial bidding step.
 
         Args:
             bid (Array): int[2], two players' bid.
-
+            facion (Array): int[2]
         Returns:
             State: new game state
         """
         # TODO
+        init_water = jnp.ones(
+            shape=(2, ), dtype=jnp.int32) * self.env_cfg.INIT_WATER_METAL_PER_FACTORY * (self.board.factories_per_team)
+        init_metal = jnp.ones(
+            shape=(2, ), dtype=jnp.int32) * self.env_cfg.INIT_WATER_METAL_PER_FACTORY * (self.board.factories_per_team)
+
+        valid_actions = (bid <= init_water) & (bid >= -init_water)  & \
+                        (bid <= init_metal) & (bid >= -init_water)
+
+        highest_bid = jnp.amax(jnp.abs(bid) * valid_actions)
+        won_bid = jnp.abs(bid) == highest_bid
+        won_bid = won_bid & valid_actions
+        won_bid = jnp.where(
+            (~won_bid).all(),
+            jnp.array([True, False]),
+            won_bid,
+        )
+
+        init_water = jnp.where(won_bid, init_water - highest_bid, init_water)
+        init_metal = jnp.where(won_bid, init_metal - highest_bid, init_metal)
+        won_player = (won_bid[0] < won_bid[1]).astype(jnp.int32)
+        place_first = jnp.where(bid[won_player] > 0, won_player, 1 - won_player)
+
+        self = self._replace(
+            teams=self.teams._replace(
+                faction=faction,
+                init_water=init_water,
+                init_metal=init_metal,
+                factories_to_place=jnp.array(
+                    [self.board.factories_per_team] * 2,
+                    dtype=jnp.int32,
+                ),
+            ),
+            place_first=place_first,
+            env_steps=self.env_steps + 1,
+        )
         return self
 
-    def _factory_placement_step(self, position) -> 'State':
-        """The early game step for factory placement.
+    def add_factory(self, team_id: int, pos: Array, water: int, metal: int):
+
+        def _add_factory(self: 'State', team_id: int, pos: Array, water: int, metal: int):
+            factory = Factory(
+                team_id=team_id,
+                unit_id=self.global_id,
+                # num_id=self.global_id,
+                pos=Position(pos),
+                power=self.env_cfg.INIT_POWER_PER_FACTORY,
+                cargo=UnitCargo(jnp.array(
+                    [0, 0, water, metal],
+                    dtype=jnp.int32,
+                )),
+            )
+
+            idx = self.n_factories[team_id]
+            factory_strains = self.teams.factory_strains.at[team_id, idx].set(factory.num_id)
+            n_factories = self.n_factories.at[team_id].add(1)
+            factories = jax.tree_map(
+                lambda fs, f: fs.at[team_id, idx].set(f),
+                self.factories,
+                factory,
+            )
+
+            board = self.board.update_factories_map(factories)
+            occupancy = factories.occupancy
+            board = board._replace(map=board.map._replace(
+                rubble=board.rubble.at[occupancy.x, occupancy.y].set(0),
+                ice=board.ice.at[occupancy.x, occupancy.y].set(False),
+                ore=board.ore.at[occupancy.x, occupancy.y].set(False),
+            ), )
+            return self._replace(
+                factories=factories,
+                n_factories=n_factories,
+                factory_id2idx=self.generate_factory_id2idx(
+                    factories,
+                    self.MAX_N_FACTORIES,
+                ),
+                global_id=self.global_id + 1,
+                board=board,
+                teams=self.teams._replace(
+                    factory_strains=factory_strains,
+                    n_factory=n_factories,
+                ),
+            )
+
+        return jax.lax.cond(
+            self.board.valid_spawns_mask[pos[0], pos[1]],
+            _add_factory,
+            lambda self, *_: self,
+            *(self, team_id, pos, water, metal),
+        )
+
+    def _factory_placement_step(self, spawn, water, metal) -> 'State':
+        """
+        The early game step for factory placement. Only half of input arrays is
+        used, the other half is ignored, depending on which player's turn it is.
 
         Args:
             actions (Array): int[2, 2], two players' factory placement.
-                Only one of position[0] and position[1] is valid, depending on the current player.
-
+                Only one of position[0] or position[1] is valid, depending on
+                the current player.
+            water (Array): int[2], the amount of water to be assigned to
+                factory. Only one of water[0] or water[1] is valid, depending on
+                the current player.
+            metal (Array): int[2], the amount of metal to be assigned to
+                factory. Only one of metal[0] or metal[1] is valid, depending on
+                the current player.
         Returns:
             State: new game state.
         """
-        # TODO
+        # decide
+        player = (self.env_steps + self.place_first + 1) % 2  # plus 1 for bid step
+        water = jnp.minimum(self.teams.init_water, water)[player]
+        metal = jnp.minimum(self.teams.init_metal, metal)[player]
+
+        x, y = spawn[player, 0], spawn[player, 1]
+        valid = self.board.valid_spawns_mask[x, y]
+
+        # factory
+        self = self.add_factory(player, spawn[player, :], water, metal)
+
+        # teams
+        factories_to_place = self.teams.factories_to_place.at[player].add(-1 * valid)
+        water = self.teams.init_water.at[player].add(-water * valid)
+        metal = self.teams.init_metal.at[player].add(-metal * valid)
+        teams = self.teams._replace(
+            factories_to_place=factories_to_place,
+            init_water=water,
+            init_metal=metal,
+        )
+
+        self = self._replace(
+            teams=teams,
+            env_steps=self.env_steps + 1,
+        )
         return self
 
     def _step_late_game(self, actions: JuxAction) -> 'State':

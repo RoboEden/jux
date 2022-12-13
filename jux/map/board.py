@@ -77,12 +77,12 @@ class Board(NamedTuple):
 
     factory_pos: Array  # int[2 * MAX_N_FACTORIES, 2]
     '''
-    cached factory positions, used for generate valid_spawn_mask. Only part of the array is valid.
+    cached factory positions, used for generate valid_spawns_mask. Only part of the array is valid.
     Non valid part is filled with INT32_MAX.
     '''
 
     @property
-    def valid_spawn_mask(self) -> Array:  # bool[height, width]
+    def valid_spawns_mask(self) -> Array:  # bool[height, width]
         # valid_spawns_mask = np.ones((self.height, self.width), dtype=jnp.bool_)  # bool[height, width]
         valid_spawns_mask = (~self.map.ice & ~self.map.ore)  # bool[height, width]
         valid_spawns_mask = valid_spawns_mask & jnp.roll(valid_spawns_mask, 1, axis=0)
@@ -257,7 +257,7 @@ class Board(NamedTuple):
 
         lux_board.factory_occupancy_map = np.array(self.factory_occupancy_map[:self.height, :self.width])
         lux_board.factory_occupancy_map[lux_board.factory_occupancy_map == INT32_MAX] = -1
-        lux_board.valid_spawns_mask = np.array(self.valid_spawn_mask)
+        lux_board.valid_spawns_mask = np.array(self.valid_spawns_mask)
         return lux_board
 
     @property
@@ -281,7 +281,8 @@ class Board(NamedTuple):
                 & jnp.array_equal(self.lichen_strains, __o.lichen_strains)
                 & jnp.array_equal(self.units_map, __o.units_map)
                 & jnp.array_equal(self.factory_map, __o.factory_map)
-                & jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map))
+                & jnp.array_equal(self.factory_occupancy_map, __o.factory_occupancy_map)
+                & jnp.array_equal(self.valid_spawns_mask, __o.valid_spawns_mask))
 
     def update_units_map(self, units) -> 'Board':
         units_map = jnp.full_like(self.units_map, fill_value=INT32_MAX)

@@ -19,7 +19,10 @@ class Factory(NamedTuple):
     pos: Position = Position()  # int16[2]
     power: int = jnp.int32(0)
     cargo: UnitCargo = UnitCargo()  # int[4]
-    num_id: int = INT32_MAX
+
+    @property
+    def num_id(self):
+        return self.unit_id
 
     @property
     def occupancy(self) -> Position:
@@ -92,7 +95,6 @@ class Factory(NamedTuple):
             pos=Position.from_lux(lux_factory.pos),
             power=lux_factory.power,
             cargo=UnitCargo.from_lux(lux_factory.cargo),
-            num_id=lux_factory.num_id,
         )
 
     def to_lux(self, teams: Dict[str, LuxTeam]) -> LuxFactory:
@@ -135,5 +137,4 @@ class Factory(NamedTuple):
         eq = eq & (self.pos == other.pos)
         eq = eq & (self.power == other.power)
         eq = eq & (self.cargo == other.cargo)
-        eq = eq & (self.num_id == other.num_id)
         return eq

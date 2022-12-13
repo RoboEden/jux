@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import NamedTuple
+from typing import NamedTuple, Union
 
 import jax.numpy as jnp
 from jax import Array
@@ -19,8 +19,13 @@ class FactionTypes(IntEnum):
     FirstMars = 3
 
     @classmethod
-    def from_lux(cls, lux_faction: LuxFactionTypes) -> "FactionTypes":
-        return cls(lux_faction.value.faction_id)
+    def from_lux(cls, lux_faction: Union[str, LuxFactionTypes]) -> "FactionTypes":
+        if isinstance(lux_faction, str):
+            return cls[lux_faction]
+        elif isinstance(lux_faction, LuxFactionTypes):
+            return cls(lux_faction.value.faction_id)
+        else:
+            raise ValueError(f"Unsupport type {type(lux_faction)}: {lux_faction}.")
 
     def to_lux(self) -> LuxFactionTypes:
         return LuxFactionTypes[self.name]
@@ -66,13 +71,13 @@ class Team(NamedTuple):
     @classmethod
     def new(cls, team_id: int, faction: FactionTypes, buf_cfg: JuxBufferConfig) -> "Team":
         return cls(
-            faction=faction,
-            team_id=team_id,
-            init_water=0,
-            init_metal=0,
-            factories_to_place=0,
+            faction=jnp.int32(faction),
+            team_id=jnp.int32(team_id),
+            init_water=jnp.int32(0),
+            init_metal=jnp.int32(0),
+            factories_to_place=jnp.int32(0),
             factory_strains=jnp.full(buf_cfg.MAX_N_FACTORIES, fill_value=INT32_MAX),
-            n_factory=0,
+            n_factory=jnp.int32(0),
         )
 
     @classmethod
@@ -82,13 +87,13 @@ class Team(NamedTuple):
         n_factory = len(lux_team.factory_strains)
         factory_strains = factory_strains.at[:n_factory].set(jnp.array(lux_team.factory_strains, dtype=jnp.int32))
         return cls(
-            faction=FactionTypes.from_lux(lux_team.faction),
-            team_id=lux_team.team_id,
-            init_water=lux_team.init_water,
-            init_metal=lux_team.init_metal,
-            factories_to_place=lux_team.factories_to_place,
+            faction=jnp.int32(FactionTypes.from_lux(lux_team.faction)),
+            team_id=jnp.int32(lux_team.team_id),
+            init_water=jnp.int32(lux_team.init_water),
+            init_metal=jnp.int32(lux_team.init_metal),
+            factories_to_place=jnp.int32(lux_team.factories_to_place),
             factory_strains=factory_strains,
-            n_factory=n_factory,
+            n_factory=jnp.int32(n_factory),
         )
 
     def to_lux(self, place_first: bool) -> LuxTeam:

@@ -42,7 +42,7 @@ class UnitType(IntEnum):
 class Unit(NamedTuple):
     unit_cfg: UnitConfig
     unit_type: UnitType
-    action_queue: ActionQueue  # int[UNIT_ACTION_QUEUE_SIZE, 5]
+    action_queue: ActionQueue  # ActionQueue[UNIT_ACTION_QUEUE_SIZE, 5]
     team_id: int = INT32_MAX
     # team # no need team object, team_id is enough
     unit_id: int = INT32_MAX
