@@ -7,8 +7,9 @@ import numpy as np
 from luxai2022 import LuxAI2022
 from rich import print
 
+import jux.actions
 import jux.utils
-from jux.config import JuxBufferConfig
+from jux.config import EnvConfig, JuxBufferConfig
 from jux.state import JuxAction, State
 from jux.team import FactionTypes
 
@@ -258,15 +259,18 @@ class TestState(chex.TestCase):
 
 class TestEarlyStageState(chex.TestCase):
 
+    def test_new(self):
+        State.new(0, env_cfg=EnvConfig(), buf_cfg=JuxBufferConfig())
+
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
-    def test_bid_step(self):
-        state_bid_step = self.variant(State._bid_step)
+    def test_step_bid(self):
+        state_step_bid = self.variant(State._step_bid)
         for seed in range(10):
             random.seed(seed)
             env = LuxAI2022()
             obs = env.reset(seed)
             n_factory = (-obs['player_0']['real_env_steps'] - 1) // 2
-            init_water_metal = env.env_cfg.INIT_WATER_METAL_PER_FACTORY
+            init_water_metal = env.env_cfg.INIT_WATER_METAL_PER_FACTORY * n_factory
             bid_range = (
                 -init_water_metal * (n_factory + 1),
                 init_water_metal * (n_factory + 1),
@@ -281,36 +285,55 @@ class TestEarlyStageState(chex.TestCase):
                     'faction': random.choice(list(FactionTypes)).name,
                 }
             }
-
             jux_state = State.from_lux(env.state)
 
             # lux step
-            obs = env.step(bid_act)
+            _ = env.step(bid_act)
 
             # jux step
-            def _bid_lux2jux(bid_lux):
-                bid = jnp.array(
-                    [bid_lux['player_0']['bid'], bid_lux['player_1']['bid']],
-                    dtype=jnp.int32,
-                )
-                faction = jnp.array(
-                    [
-                        FactionTypes.from_lux(bid_lux['player_0']['faction']),
-                        FactionTypes.from_lux(bid_lux['player_1']['faction'])
-                    ],
-                    dtype=jnp.int32,
-                )
-                return bid, faction
+            bid_act_jux = jux.actions.bid_action_from_lux(bid_act)
+            jux_state = state_step_bid(jux_state, *bid_act_jux)
 
-            bid_act_jux = _bid_lux2jux(bid_act)
-            jux_state = state_bid_step(jux_state, *bid_act_jux)
             lux_state = State.from_lux(env.state)
+            assert state___eq___jitted(jux_state, lux_state)
 
+    def test_step_bid_2(self):
+        state_step_bid = jax.jit(State._step_bid)
+        bids = [
+            [0, 0],
+            [0, 1],
+            [2, 0],
+            [-3, 0],
+            [0, -4],
+        ]
+        for bid1, bid2 in bids:
+            env = LuxAI2022()
+            env.reset()
+            bid_act = {
+                'player_0': {
+                    'bid': bid1,
+                    'faction': random.choice(list(FactionTypes)).name,
+                },
+                'player_1': {
+                    'bid': bid2,
+                    'faction': random.choice(list(FactionTypes)).name,
+                }
+            }
+            jux_state = State.from_lux(env.state)
+
+            # lux step
+            _ = env.step(bid_act)
+
+            # jux step
+            bid_act_jux = jux.actions.bid_action_from_lux(bid_act)
+            jux_state = state_step_bid(jux_state, *bid_act_jux)
+
+            lux_state = State.from_lux(env.state)
             assert state___eq___jitted(jux_state, lux_state)
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
-    def test_factory_placement_step(self):
-        state_factory_placement_step = self.variant(State._factory_placement_step)
+    def test_step_factory_placement(self):
+        state_step_factory_placement = self.variant(State._step_factory_placement)
         for seed in range(10):
             random.seed(seed)
 
@@ -355,27 +378,15 @@ class TestEarlyStageState(chex.TestCase):
                     lux_act['player_0'] = {}
 
                 # create jux act
-                jux_act = dict(
-                    spawn=jnp.array([
-                        lux_act['player_0']['spawn'] if lux_act['player_0'] else [0, 0],
-                        lux_act['player_1']['spawn'] if lux_act['player_1'] else [0, 0],
-                    ]),
-                    water=jnp.array([
-                        lux_act['player_0']['water'] if lux_act['player_0'] else 0,
-                        lux_act['player_1']['water'] if lux_act['player_1'] else 0,
-                    ]),
-                    metal=jnp.array([
-                        lux_act['player_0']['metal'] if lux_act['player_0'] else 0,
-                        lux_act['player_1']['metal'] if lux_act['player_1'] else 0,
-                    ]),
-                )
+                jux_act = jux.actions.factory_placement_action_from_lux(lux_act)
+
                 # print(f"{valid = }")
                 # print(f"{lux_act = }")
                 # valid = obs['player_0']['board']['valid_spawns_mask'][spawn[0], spawn[1]]
 
                 # step
                 obs, _, _, _ = env.step(lux_act)
-                jux_state = state_factory_placement_step(jux_state, **jux_act)
+                jux_state = state_step_factory_placement(jux_state, *jux_act)
 
                 lux_state = State.from_lux(env.state)
                 # print(f"{jux_state.n_factories = }")

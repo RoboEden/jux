@@ -132,29 +132,38 @@ class State(NamedTuple):
             self.env_steps,
         )
 
+    @property
+    def next_player(self):
+        """The next player to place a factory.
+
+        Returns:
+            int: player_id 0 or 1.
+        """
+        return (self.env_steps + self.place_first + 1) % 2  # plus 1 for bid step
+
     @classmethod
     def new(cls, seed: int, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig) -> "State":
-        # TODO
-        rng_state = jax.random.PRNGKey(seed)
-        env_steps = 0
+        key = jax.random.PRNGKey(seed)
         board = Board.new(
             seed=seed,
             env_cfg=env_cfg,
             buf_cfg=buf_cfg,
         )
+        key, subkey = jax.random.split(key)
         weather_schedule = jux.weather.generate_weather_schedule(
-            rng=rng_state,
+            key=subkey,
             env_cfg=env_cfg,
         )
         empty_unit = Unit.empty(env_cfg)
-        units = jax.tree_map(lambda x: x[None].repeat(buf_cfg.MAX_N_UNITS), empty_unit)
-        units = jax.tree_map(lambda x: x[None].repeat(2), units)
+        empty_unit = jax.tree_map(lambda x: x if isinstance(x, Array) else np.array(x), empty_unit)
+        units = jax.tree_map(lambda x: x[None].repeat(buf_cfg.MAX_N_UNITS, axis=0), empty_unit)
+        units = jax.tree_map(lambda x: x[None].repeat(2, axis=0), units)
         unit_id2idx = State.generate_unit_id2idx(units, buf_cfg.MAX_GLOBAL_ID)
         n_units = jnp.zeros(shape=(2, ), dtype=jnp.int32)
 
         factories = Factory.empty()
-        factories = jax.tree_map(lambda x: x[None].repeat(buf_cfg.MAX_N_FACTORIES), empty_unit)
-        factories = jax.tree_map(lambda x: x[None].repeat(2), factories)
+        factories = jax.tree_map(lambda x: x[None].repeat(buf_cfg.MAX_N_FACTORIES, axis=0), empty_unit)
+        factories = jax.tree_map(lambda x: x[None].repeat(2, axis=0), factories)
         factory_id2idx = State.generate_unit_id2idx(factories, buf_cfg.MAX_GLOBAL_ID)
         n_factories = jnp.zeros(shape=(2, ), dtype=jnp.int32)
 
@@ -166,9 +175,9 @@ class State(NamedTuple):
 
         state = cls(
             env_cfg=env_cfg,
-            seed=seed,
-            rng_state=rng_state,
-            env_steps=env_steps,
+            seed=jnp.int32(seed),
+            rng_state=key,
+            env_steps=jnp.int32(0),
             board=board,
             weather_schedule=weather_schedule,
             units=units,
@@ -256,11 +265,13 @@ class State(NamedTuple):
             else:
                 place_first = jnp.int32(1)
 
+            seed = lux_state.seed if lux_state.seed is not None else INT32_MAX
+
             state = State(
                 env_cfg=env_cfg,
-                seed=lux_state.seed,
-                rng_state=jax.random.PRNGKey(lux_state.seed),
-                env_steps=lux_state.env_steps,
+                seed=seed,
+                rng_state=jax.random.PRNGKey(seed),
+                env_steps=jnp.int32(lux_state.env_steps),
                 board=Board.from_lux(lux_state.board, buf_cfg),
                 weather_schedule=jnp.array(lux_state.weather_schedule),
                 units=units,
@@ -384,9 +395,10 @@ class State(NamedTuple):
             'player_1': _to_lux_factories(lux_factories[1], n_factories[1]),
         }
 
+        seed = self.seed if self.seed != INT32_MAX else None
         return LuxState(
             seed_rng=np.random.RandomState(self.seed),
-            seed=int(self.seed),
+            seed=int(seed),
             env_steps=int(self.env_steps),
             env_cfg=lux_env_cfg,
             board=self.board.to_lux(lux_env_cfg, lux_factories, lux_units),
@@ -501,28 +513,7 @@ class State(NamedTuple):
         chex.assert_shape(actions.unit_action_queue_count, (2, self.MAX_N_UNITS))
         chex.assert_shape(actions.unit_action_queue_update, (2, self.MAX_N_UNITS))
 
-    # def step(self, actions: JuxAction) -> 'State':
-    #     # TODO: check input actions's shape
-    #     early_game = ((self.env_steps == 0) | (self.env_cfg.BIDDING_SYSTEM &
-    #                                            (self.env_steps <= self.board.factories_per_team + 1))).all()
-
-    #     self = jax.lax.cond(
-    #         early_game,
-    #         State._step_early_game,
-    #         State._step_late_game,
-    #         self,
-    #         actions,
-    #     )
-
-    #     # always set rubble under factories to 0.
-    #     rubble = jnp.where(self.board.factory_occupancy_map != INT32_MAX, 0, self.board.rubble)
-    #     self = self._replace(board=self.board._replace(map=self.board.map._replace(rubble=rubble)))
-
-    #     # TODO: calculate reward, dones, observations
-
-    #     return self
-
-    def _bid_step(self, bid: Array, faction: Array) -> 'State':
+    def _step_bid(self, bid: Array, faction: Array) -> 'State':
         """The initial bidding step.
 
         Args:
@@ -531,28 +522,28 @@ class State(NamedTuple):
         Returns:
             State: new game state
         """
-        # TODO
-        init_water = jnp.ones(
-            shape=(2, ), dtype=jnp.int32) * self.env_cfg.INIT_WATER_METAL_PER_FACTORY * (self.board.factories_per_team)
-        init_metal = jnp.ones(
-            shape=(2, ), dtype=jnp.int32) * self.env_cfg.INIT_WATER_METAL_PER_FACTORY * (self.board.factories_per_team)
+        init_resource = self.env_cfg.INIT_WATER_METAL_PER_FACTORY * self.board.factories_per_team
+        init_water = jnp.full(shape=(2, ), fill_value=init_resource, dtype=jnp.int32)
+        init_metal = jnp.full(shape=(2, ), fill_value=init_resource, dtype=jnp.int32)
 
-        valid_actions = (bid <= init_water) & (bid >= -init_water)  & \
-                        (bid <= init_metal) & (bid >= -init_water)
+        valid_actions = (bid <= init_resource) & (bid >= -init_resource)
 
-        highest_bid = jnp.amax(jnp.abs(bid) * valid_actions)
-        won_bid = jnp.abs(bid) == highest_bid
-        won_bid = won_bid & valid_actions
-        won_bid = jnp.where(
-            (~won_bid).all(),
-            jnp.array([True, False]),
-            won_bid,
-        )
+        # player_0 win if
+        #  1. player_1 propose invalid bid, or
+        #  2. player_0 propose valid bid and bid is higher than player_1
+        bid_abs = jnp.abs(bid)
+        player_0_won = ~valid_actions[1] | (valid_actions[0] & (bid_abs[0] >= bid_abs[1]))
+        won = jnp.array([
+            player_0_won,
+            ~player_0_won,
+        ])
 
-        init_water = jnp.where(won_bid, init_water - highest_bid, init_water)
-        init_metal = jnp.where(won_bid, init_metal - highest_bid, init_metal)
-        won_player = (won_bid[0] < won_bid[1]).astype(jnp.int32)
-        place_first = jnp.where(bid[won_player] > 0, won_player, 1 - won_player)
+        init_water = init_water - bid_abs * won * valid_actions
+        init_metal = init_metal - bid_abs * won * valid_actions
+
+        won_player_id = jnp.where(player_0_won, 0, 1)
+        place_first = jnp.where(bid[won_player_id] >= 0, won_player_id, 1 - won_player_id)
+        place_first = jnp.where(~valid_actions.any(), 0, place_first)
 
         self = self._replace(
             teams=self.teams._replace(
@@ -564,7 +555,7 @@ class State(NamedTuple):
                     dtype=jnp.int32,
                 ),
             ),
-            place_first=place_first,
+            place_first=jnp.int32(place_first),
             env_steps=self.env_steps + 1,
         )
         return self
@@ -622,7 +613,7 @@ class State(NamedTuple):
             *(self, team_id, pos, water, metal),
         )
 
-    def _factory_placement_step(self, spawn, water, metal) -> 'State':
+    def _step_factory_placement(self, spawn, water, metal) -> 'State':
         """
         The early game step for factory placement. Only half of input arrays is
         used, the other half is ignored, depending on which player's turn it is.
@@ -641,9 +632,9 @@ class State(NamedTuple):
             State: new game state.
         """
         # decide
-        player = (self.env_steps + self.place_first + 1) % 2  # plus 1 for bid step
-        water = jnp.minimum(self.teams.init_water, water)[player]
-        metal = jnp.minimum(self.teams.init_metal, metal)[player]
+        player = self.next_player
+        water = jnp.clip(water[player], 0, self.teams.init_water[player])
+        metal = jnp.clip(metal[player], 0, self.teams.init_metal[player])
 
         x, y = spawn[player, 0], spawn[player, 1]
         valid = self.board.valid_spawns_mask[x, y]
@@ -1189,7 +1180,7 @@ class State(NamedTuple):
         )
 
     def _validate_movement_actions(self, actions: UnitAction,
-                                   weather_cfg: Dict[str, Union[int, float]]) -> Tuple[Array, Array, Array]:
+                                   weather_cfg: Dict[str, Union[int, float]]) -> Tuple[Array, Array]:
         unit_mask = self.unit_mask
         player_id = jnp.array([0, 1])[..., None]
 

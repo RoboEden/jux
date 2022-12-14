@@ -1,9 +1,11 @@
 from enum import IntEnum
-from typing import Any, NamedTuple, Tuple
+from typing import NamedTuple, Tuple
 
 import jax
 from jax import lax
 from jax import numpy as jnp
+
+import jux
 
 INT32_MAX = jnp.iinfo(jnp.int32).max
 
@@ -128,7 +130,7 @@ def get_weather_cfg(weather_cfg, current_weather: Weather):
     )
 
 
-def generate_weather_schedule(key: jax.random.PRNGKey, env_cfg: Any):
+def generate_weather_schedule(key: jax.random.KeyArray, env_cfg):
     # randomly generate 3-5 events, each lasting 20 turns
     # no event can overlap another
     key, subkey = jax.random.split(key)

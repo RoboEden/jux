@@ -41,6 +41,7 @@
         "pre-commit",
         "pytype",
         "tox",
+        "tox-conda",
         "pytest",
         "pytest-cov",
         "isort",

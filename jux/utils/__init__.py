@@ -2,18 +2,18 @@ import gzip
 import json
 import os.path as osp
 import urllib.request
-from typing import Dict, Tuple
+from typing import Dict, Generator, Tuple
 
 from luxai2022 import LuxAI2022
 
 
-def get_actions_from_replay(replay: Dict) -> Dict:
+def get_actions_from_replay(replay: Dict) -> Generator[Dict, None, None]:
     for step in replay['steps'][1:]:
         player_0, player_1 = step
         yield {'player_0': player_0['action'], 'player_1': player_1['action']}
 
 
-def load_replay(replay: str) -> Tuple[LuxAI2022, Dict]:
+def load_replay(replay: str) -> Tuple[LuxAI2022, Generator[Dict, None, None]]:
     if osp.splitext(replay)[-1] == '.gz':
         with gzip.open(replay) as f:
             replay = json.load(f)

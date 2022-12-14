@@ -203,10 +203,12 @@ class Board(NamedTuple):
         unit_id = jnp.array(unit_id, dtype=jnp.int32)
         units_map = units_map.at[xs, ys].set(unit_id)
 
+        seed = lux_board.seed if lux_board.seed is not None else INT32_MAX
+
         return cls(
             height=height,
             width=width,
-            seed=lux_board.seed,
+            seed=seed,
             factories_per_team=lux_board.factories_per_team,
             map=GameMap.from_lux(lux_board.map, buf_cfg),
             lichen=lichen,
@@ -229,7 +231,7 @@ class Board(NamedTuple):
         lux_board.env_cfg = lux_env_cfg
         lux_board.height = int(height)
         lux_board.width = int(width)
-        lux_board.seed = self.seed
+        lux_board.seed = self.seed if self.seed != INT32_MAX else None
         lux_board.factories_per_team = int(self.factories_per_team)
         lux_board.map = self.map.to_lux()
         lux_board.lichen = np.array(self.lichen[:self.height, :self.width])

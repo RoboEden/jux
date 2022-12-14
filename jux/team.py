@@ -69,7 +69,7 @@ class Team(NamedTuple):
     n_factory: int  # usually MAX_FACTORIES or MAX_FACTORIES + 1
 
     @classmethod
-    def new(cls, team_id: int, faction: FactionTypes, buf_cfg: JuxBufferConfig) -> "Team":
+    def new(cls, team_id: int, faction: Union[FactionTypes, int], buf_cfg: JuxBufferConfig) -> "Team":
         return cls(
             faction=jnp.int32(faction),
             team_id=jnp.int32(team_id),

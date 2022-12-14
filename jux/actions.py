@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import Dict, List, NamedTuple, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -12,6 +12,7 @@ from luxai2022.unit import UnitType as LuxUnitType
 import jux.torch
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.map.position import Direction
+from jux.team import FactionTypes
 from jux.unit_cargo import ResourceType
 
 try:
@@ -425,3 +426,156 @@ class JuxAction(NamedTuple):
             JuxAction: a JuxAction object with leaves converted to `torch.Tensor`.
         """
         return jax.tree_map(jux.torch.to_torch, self)
+
+
+def bid_action_from_lux(lux_bid_action: Dict[str, Dict[str, int]]) -> Tuple[Array, Array]:
+    '''
+    Convert a `LuxAI2022` bid action to a format that `JuxEnv.step_bid()` can receive.
+
+    Args:
+        lux_bid_action (Dict[str, Dict[str, int]]): a bid action from `LuxAI2022`. In format of:
+        ```
+        {
+            'player_0': {
+                'bid': int,
+                'faction': str,
+            },
+            'player_1': {
+                'bid': int,
+                'faction': str,
+            },
+        }
+
+    Returns:
+        bid (Array): int[2], bid amount for each player.
+        faction (Array): int[2], faction for each player.
+    '''
+    bid = jnp.array(
+        [
+            lux_bid_action['player_0']['bid'],
+            lux_bid_action['player_1']['bid'],
+        ],
+        dtype=jnp.int32,
+    )
+    faction = jnp.array(
+        [
+            FactionTypes[lux_bid_action['player_0']['faction']],
+            FactionTypes[lux_bid_action['player_1']['faction']],
+        ],
+        dtype=jnp.int32,
+    )
+    return bid, faction
+
+
+def bid_action_to_lux(bid: Array, faction: Array) -> Dict[str, Dict[str, int]]:
+    '''
+    Convert a `JuxEnv.step_bid()` action to a format that `LuxAI2022` can receive.
+
+    Args:
+        bid (Array): int[2], bid amount for each player.
+        faction (Array): int[2], faction for each player.
+
+    Returns:
+        Dict[str, Dict[str, int]]: a `LuxAI2022` bid action. In format of:
+        ```
+        {
+            'player_0': {
+                'bid': int,
+                'faction': str,
+            },
+            'player_1': {
+                'bid': int,
+                'faction': str,
+            },
+        }
+        ```
+    '''
+    return {
+        'player_0': {
+            'bid': int(bid[0]),
+            'faction': FactionTypes(faction[0]).name,
+        },
+        'player_1': {
+            'bid': int(bid[1]),
+            'faction': FactionTypes(faction[1]).name,
+        },
+    }
+
+
+def factory_placement_action_from_lux(lux_act: Dict[str, Dict[str, Any]]) -> Tuple[Array, Array, Array]:
+    '''Convert a `LuxAI2022` factory placement action to a format that `JuxEnv.step_factory_placement()` can receive.
+    See `JuxEnv.step_factory_placement()` for more details.
+
+    Args:
+        lux_act (Dict[str, Dict[str, Any]]): a `LuxAI2022` factory placement action. In format of:
+        ```
+        {
+            'player_0': {
+                'spawn': [int, int],
+                'water': int,
+                'metal': int,
+            },
+            'player_1': {},
+        }
+        ```
+
+    Returns:
+        spawn (Array): int[2, 2], the spawn position.
+        water (Array): int[2], The initial water amount of the factory.
+        metal (Array): int[2], The initial metal amount of the factory.
+    '''
+    spawn = jnp.array([
+        lux_act['player_0']['spawn'] if lux_act['player_0'] else [0, 0],
+        lux_act['player_1']['spawn'] if lux_act['player_1'] else [0, 0],
+    ])
+    water = jnp.array([
+        lux_act['player_0']['water'] if lux_act['player_0'] else 0,
+        lux_act['player_1']['water'] if lux_act['player_1'] else 0,
+    ])
+    metal = jnp.array([
+        lux_act['player_0']['metal'] if lux_act['player_0'] else 0,
+        lux_act['player_1']['metal'] if lux_act['player_1'] else 0,
+    ])
+    return spawn, water, metal
+
+
+def factory_placement_action_to_lux(spawn, water, metal) -> Dict[str, Dict[str, Any]]:
+    """Convert factory placement action to LuxAI2022's action format. For more details about
+    input arguments, see `JuxEnv.step_factory_placement()`.
+
+    Args:
+        spawn (Array): int[2, 2]. The spawn location of the factory.
+        water (Array): int[2]. The initial water amount of the factory.
+        metal (Array): int[2]. The initial metal amount of the factory.
+
+    Returns:
+        Dict[str, Dict[str, Any]]: a dict in form of
+
+        ```
+        {
+            'player_0': {
+                'spawn': [int, int],
+                'water': int,
+                'metal': int,
+            },
+            'player_1': {
+                'spawn': [int, int],
+                'water': int,
+                'metal': int,
+            },
+        }
+        ```
+    """
+    lux_act = {
+        'player_0': {
+            'spawn': spawn[0].tolist(),
+            'water': water[0].tolist(),
+            'metal': metal[0].tolist(),
+        },
+        'player_1': {
+            'spawn': spawn[1].tolist(),
+            'water': water[1].tolist(),
+            'metal': metal[1].tolist(),
+        },
+    }
+    return lux_act
