@@ -15,10 +15,7 @@ from jux.team import FactionTypes
 
 jnp.set_printoptions(linewidth=500, threshold=10000)
 
-
-def map_to_aval(pytree):
-    return jax.tree_map(lambda x: x.aval, pytree)
-
+from jux.tree_util import map_to_aval
 
 state___eq___jitted = jax.jit(chex.assert_max_traces(n=1)(State.__eq__))
 

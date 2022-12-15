@@ -8,8 +8,7 @@ from luxai2022.team import FactionTypes as LuxFactionTypes
 from luxai2022.team import Team as LuxTeam
 
 from jux.config import JuxBufferConfig
-
-INT32_MAX = jnp.iinfo(jnp.int32).max
+from jux.utils import INT32_MAX
 
 
 class FactionTypes(IntEnum):

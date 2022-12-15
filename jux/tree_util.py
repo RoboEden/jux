@@ -8,6 +8,10 @@ from jax import Array
 T = TypeVar("T")
 
 
+def map_to_aval(pytree):
+    return jax.tree_map(lambda x: x.aval, pytree)
+
+
 def batch_into_leaf(seq: Sequence[T], axis=0) -> T:
     """Transpose a batch of pytrees into a pytree of batched leaves.
 

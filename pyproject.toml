@@ -49,6 +49,7 @@
         "yapf",
         "bump2version",
         "rich",
+        "pandas",
     ]
 
 [tool.setuptools.dynamic]

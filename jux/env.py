@@ -117,14 +117,16 @@ class JuxEnv:
                     The number of actions in the robot's updated action queue. Only when `actions.unit_action_queue_update[player_i, robot_j]`
                     is True, then `actions.unit_action_queue_count[player_i, robot_j]` is used.
 
-                actions.unit_action_queue.code: int[2, self.buf_cfg.MAX_N_UNITS, self.env_cfg.UNIT_ACTION_QUEUE_SIZE, 5].
+                actions.unit_action_queue: UnitAction[2, self.buf_cfg.MAX_N_UNITS, self.env_cfg.UNIT_ACTION_QUEUE_SIZE].
                     If update a robot's action queue, the actions in the updated queue you want.
 
                 In short, when `actions.unit_action_queue_count[player_i, robot_j] == True`, then the `robot_j` of `player_i` will
                 have following actions in queue, if the robot has enough power to update its action queue:
                 ```python
                 n_actions = actions.unit_action_queue_count[player_i, robot_j]
-                actions_in_queue = actions.unit_action_queue.code[player_i, robot_j, :n_actions, :]
+                actions_in_queue = jux.tree_util.batch_out_of_leaf(
+                    jax.tree_map(lambda x: x[player_i, robot_j, :n_actions], actions.unit_action_queue)
+                )
                 ```
 
         Returns:

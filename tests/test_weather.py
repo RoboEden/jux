@@ -21,8 +21,8 @@ class TestWeather(chex.TestCase):
             env_cfg = EnvConfig()
             lux_weather = self.lux_generate_weather_schedule(key=subkey, cfg=lux_env_cfg)
             jux_weather = generate_weather_schedule(key=subkey, env_cfg=env_cfg)
-            jax.debug.print("lux_weather: {lux_weather}", lux_weather=lux_weather)
-            jax.debug.print("jux_weather: {jux_weather}", jux_weather=jux_weather)
+            # jax.debug.print("lux_weather: {lux_weather}", lux_weather=lux_weather)
+            # jax.debug.print("jux_weather: {jux_weather}", jux_weather=jux_weather)
             assert jnp.allclose(lux_weather, jux_weather), f"seed: {seed}"
 
     @staticmethod

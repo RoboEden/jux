@@ -17,8 +17,7 @@ from jux.map.position import Direction, Position, direct2delta_xy
 from jux.team import LuxTeam, Team
 from jux.unit import LuxUnit, Unit, UnitCargo, UnitType
 from jux.unit_cargo import ResourceType
-
-INT32_MAX = jnp.iinfo(jnp.int32).max
+from jux.utils import INT32_MAX
 
 
 def is_day(env_cfg: EnvConfig, env_step):
@@ -89,8 +88,7 @@ class State(NamedTuple):
 
     @property
     def UNIT_ACTION_QUEUE_SIZE(self):
-        self.units.action_queue.data: Array
-        return self.units.action_queue.data.shape[-2]
+        return self.units.action_queue.capacity
 
     @property
     def MAX_GLOBAL_ID(self):
@@ -466,46 +464,7 @@ class State(NamedTuple):
                 & units_eq(self.units, self.n_units, other.units, other.n_units))
 
     def parse_actions_from_dict(self, actions: Dict[str, Dict[str, Union[int, Array]]]) -> JuxAction:
-        factory_action = np.empty((2, self.MAX_N_FACTORIES), dtype=np.int32)
-        factory_action.fill(FactoryAction.DO_NOTHING.value)
-
-        unit_action_queue = np.empty((2, self.MAX_N_UNITS, self.env_cfg.UNIT_ACTION_QUEUE_SIZE, 5), dtype=np.int32)
-        unit_action_queue_count = np.zeros((2, self.MAX_N_UNITS), dtype=np.int32)
-        unit_action_queue_update = np.zeros((2, self.MAX_N_UNITS), dtype=np.bool_)
-
-        for player_id, player_actions in actions.items():
-            player_id = int(player_id.split('_')[-1])
-            for unit_id, action in player_actions.items():
-                if unit_id.startswith('factory_'):
-                    unit_id = int(unit_id.split('_')[-1])
-                    pid, idx = self.factory_id2idx[unit_id]
-                    assert pid == player_id
-                    assert 0 <= idx < self.n_factories[player_id]
-                    factory_action[player_id, idx] = action
-                elif unit_id.startswith('unit_'):
-                    unit_id = int(unit_id.split('_')[-1])
-                    pid, idx = self.unit_id2idx[unit_id]
-                    assert pid == player_id
-                    assert 0 <= idx < self.n_units[player_id]
-
-                    queue_size = len(action)
-                    unit_action_queue[player_id, idx, :queue_size, :] = action
-                    unit_action_queue_count[player_id, idx] = queue_size
-                    unit_action_queue_update[player_id, idx] = True
-                else:
-                    raise ValueError(f'Unknown unit_id: {unit_id}')
-
-        factory_action = jnp.array(factory_action)
-        unit_action_queue = jnp.array(unit_action_queue)
-        unit_action_queue_count = jnp.array(unit_action_queue_count)
-        unit_action_queue_update = jnp.array(unit_action_queue_update)
-
-        return JuxAction(
-            factory_action,
-            UnitAction(unit_action_queue),
-            unit_action_queue_count,
-            unit_action_queue_update,
-        )
+        return JuxAction.from_lux(self, actions)
 
     def check_actions(self, actions: JuxAction) -> None:
         chex.assert_shape(actions.factory_action, (2, self.MAX_N_FACTORIES))
@@ -711,7 +670,11 @@ class State(NamedTuple):
         new_power = jnp.where(update_queue, self.units.power - update_power_req, self.units.power)
         chex.assert_shape(new_power, (2, self.MAX_N_UNITS))
         new_action_queue = jux.actions.ActionQueue(
-            data=jnp.where(update_queue[..., None, None], actions.unit_action_queue.code, self.units.action_queue.data),
+            data=jux.tree_util.tree_where(
+                update_queue[..., None],
+                actions.unit_action_queue,
+                self.units.action_queue.data,
+            ),
             count=jnp.where(update_queue, actions.unit_action_queue_count, self.units.action_queue.count),
             front=jnp.where(update_queue, 0, self.units.action_queue.front),
             rear=jnp.where(update_queue, actions.unit_action_queue_count, self.units.action_queue.rear),

@@ -3,7 +3,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
-INT32_MAX = jnp.iinfo(jnp.int32).max
+from jux.utils import INT32_MAX
 
 
 def color2code(color):

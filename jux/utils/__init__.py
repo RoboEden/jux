@@ -4,7 +4,11 @@ import os.path as osp
 import urllib.request
 from typing import Dict, Generator, Tuple
 
+import jax.numpy as jnp
 from luxai2022 import LuxAI2022
+
+INT32_MAX = jnp.iinfo(jnp.int32).max
+INT8_MAX = jnp.iinfo(jnp.int8).max
 
 
 def get_actions_from_replay(replay: Dict) -> Generator[Dict, None, None]:

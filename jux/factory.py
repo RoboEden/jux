@@ -8,14 +8,13 @@ from luxai2022.team import Team as LuxTeam
 from jux.config import EnvConfig
 from jux.map.position import Position, direct2delta_xy
 from jux.unit import ResourceType, Unit, UnitCargo
-
-INT32_MAX = jnp.iinfo(jnp.int32).max
+from jux.utils import INT32_MAX
 
 
 class Factory(NamedTuple):
-    team_id: int = INT32_MAX
+    team_id: int = jnp.int32(INT32_MAX)
     # team # no need team object, team_id is enough
-    unit_id: int = INT32_MAX
+    unit_id: int = jnp.int32(INT32_MAX)
     pos: Position = Position()  # int16[2]
     power: int = jnp.int32(0)
     cargo: UnitCargo = UnitCargo()  # int[4]

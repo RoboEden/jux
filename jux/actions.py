@@ -1,26 +1,29 @@
 from enum import IntEnum
+from functools import reduce
 from typing import Any, Dict, List, NamedTuple, Tuple, Union
 
+import chex
 import jax
 import jax.numpy as jnp
 import luxai2022.actions as lux_actions
 import numpy as np
 from jax import Array
 from luxai2022.actions import Action as LuxAction
+from luxai2022.actions import format_action_vec
 from luxai2022.unit import UnitType as LuxUnitType
 
 import jux.torch
+import jux.tree_util
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.map.position import Direction
 from jux.team import FactionTypes
 from jux.unit_cargo import ResourceType
+from jux.utils import INT8_MAX, INT32_MAX
 
 try:
     import torch
 except ImportError:
     pass
-
-INT32_MAX = jnp.iinfo(jnp.int32).max
 
 
 class FactoryAction(IntEnum):
@@ -57,51 +60,48 @@ class UnitActionType(IntEnum):
 
 
 class UnitAction(NamedTuple):
-    code: Array = jnp.zeros(5, jnp.int32)  # int[5]
+    action_type: jnp.int8 = jnp.int8(UnitActionType.DO_NOTHING)
+    direction: jnp.int8 = jnp.int8(0)
+    resource_type: jnp.int8 = jnp.int8(0)
+    amount: jnp.int16 = jnp.int16(0)
+    repeat: jnp.int8 = jnp.int8(0)
 
-    @property
-    def action_type(self):
-        return self.code[..., 0]
-
-    @property
-    def direction(self):
-        return self.code[..., 1]
-
-    @property
-    def resource_type(self):
-        return self.code[..., 2]
-
-    @property
-    def amount(self):
-        return self.code[..., 3]
-
-    @property
-    def repeat(self):
-        return self.code[..., 4]
-
-    @property
-    def dist(self):
-        return self.code[..., 2]
+    @classmethod
+    def new(
+        cls,
+        action_type: UnitActionType,
+        direction: Direction,
+        resource_type: ResourceType,
+        amount: jnp.int16,
+        repeat: jnp.int8,
+    ) -> "UnitAction":
+        return UnitAction(
+            jnp.int8(action_type),
+            jnp.int8(direction),
+            jnp.int8(resource_type),
+            jnp.int16(amount),
+            jnp.int8(repeat),
+        )
 
     @classmethod
     def move(cls, direction: Direction, repeat: int = 0) -> "UnitAction":
-        return cls(jnp.array([UnitActionType.MOVE, direction, 0, 0, repeat], jnp.int32))
+        return cls.new(UnitActionType.MOVE, direction, 0, 0, repeat)
 
     @classmethod
     def transfer(cls, direction: Direction, resource: ResourceType, amount: int, repeat: int = 0) -> "UnitAction":
-        return cls(jnp.array([UnitActionType.TRANSFER, direction, resource, amount, repeat], jnp.int32))
+        return cls.new(UnitActionType.TRANSFER, direction, resource, amount, repeat)
 
     @classmethod
     def pickup(cls, resource: ResourceType, amount: int, repeat: int = 0) -> "UnitAction":
-        return cls(jnp.array([UnitActionType.PICKUP, 0, resource, amount, repeat], jnp.int32))
+        return cls.new(UnitActionType.PICKUP, 0, resource, amount, repeat)
 
     @classmethod
     def dig(cls, repeat: int = 0) -> "UnitAction":
-        return cls(jnp.array([UnitActionType.DIG, 0, 0, 0, repeat], jnp.int32))
+        return cls.new(UnitActionType.DIG, 0, 0, 0, repeat)
 
     @classmethod
     def self_destruct(cls, repeat: int = 0) -> "UnitAction":
-        return cls(jnp.array([UnitActionType.SELF_DESTRUCT, 0, 0, 0, repeat], jnp.int32))
+        return cls.new(UnitActionType.SELF_DESTRUCT, 0, 0, 0, repeat)
 
     @classmethod
     def recharge(cls, amount: int, repeat: int = 0) -> "UnitAction":
@@ -114,70 +114,86 @@ class UnitAction(NamedTuple):
         Returns:
             UnitAction: a recharge action
         """
-        return cls(jnp.array([UnitActionType.RECHARGE, 0, 0, amount, repeat], jnp.int32))
+        return cls.new(UnitActionType.RECHARGE, 0, 0, amount, repeat)
 
     @classmethod
     def do_nothing(cls) -> "UnitAction":
-        return cls(jnp.array([UnitActionType.DO_NOTHING, 0, 0, 0, 0], jnp.int32))
+        return cls.new(UnitActionType.DO_NOTHING, 0, 0, 0, 0)
 
     @classmethod
     def from_lux(cls, lux_action: LuxAction) -> "UnitAction":
         code: np.ndarray = lux_action.state_dict()
         assert code.shape == (5, ), f"Invalid UnitAction action code: {code}"
-        return cls(jnp.array(code, jnp.int32))
+        return cls.new(*code)
 
     def to_lux(self) -> LuxAction:
-        return lux_actions.format_action_vec(np.array(self.code))
+        return lux_actions.format_action_vec(
+            np.array([
+                int(self.action_type),
+                int(self.direction),
+                int(self.resource_type),
+                int(self.amount),
+                int(self.repeat),
+            ]))
 
     def __eq__(self, __o: object) -> bool:
-        return isinstance(__o, UnitAction) and jnp.array_equal(self.code, __o.code)
+        return isinstance(__o, UnitAction) and \
+            (self.action_type == __o.action_type) and \
+            (self.direction == __o.direction) and \
+            (self.resource_type == __o.resource_type) and \
+            (self.amount == __o.amount) and \
+            (self.repeat == __o.repeat)
 
     def is_valid(self, max_transfer_amount) -> bool:
-        min = jnp.array([0, 0, 0, 0, -1])
-        max = jnp.array([
-            len(UnitActionType) - 1,
-            len(Direction) - 1,
-            len(ResourceType) - 1,
-            max_transfer_amount,
-            INT32_MAX,
-        ])
-        return ((self.code >= min) & (self.code <= max)).all(-1)
+        return (
+            (0 <= self.action_type) & (self.action_type <= len(UnitActionType) - 1) & \
+            (0 <= self.direction) & (self.direction <= len(Direction) - 1) & \
+            (0 <= self.resource_type) & (self.resource_type <= len(ResourceType) - 1) & \
+            (0 <= self.amount) & (self.amount <= max_transfer_amount) & \
+            (-1 <= self.repeat) & (self.repeat <= INT8_MAX) \
+        )
 
 
 class ActionQueue(NamedTuple):
-    data: Array  # int[UNIT_ACTION_QUEUE_SIZE, 5]
-    front: int = jnp.int32(0)
-    rear: int = jnp.int32(0)
-    count: int = jnp.int32(0)
+    data: UnitAction  # UnitAction[UNIT_ACTION_QUEUE_SIZE, 5]
+    front: jnp.int8 = jnp.int8(0)
+    rear: jnp.int8 = jnp.int8(0)
+    count: jnp.int8 = jnp.int8(0)
 
     @staticmethod
     def empty(capacity: int) -> "ActionQueue":
-        return ActionQueue(jnp.zeros((capacity, 5), jnp.int32))
+        data = jax.tree_map(lambda x: x[None].repeat(capacity), UnitAction.do_nothing())
+        return ActionQueue(data)
 
     @classmethod
     def from_lux(cls, actions: List[LuxAction], max_queue_size: int) -> "ActionQueue":
-        n_actions = jnp.int32(len(actions))
+        n_actions = len(actions)
         assert n_actions <= max_queue_size, f"{n_actions} actions is too much for ActionQueue size {max_queue_size}"
-        data = jnp.array([UnitAction.from_lux(act).code for act in actions], jnp.int32).reshape(-1, 5)
-        pad_size = max_queue_size - len(data)
-        padding = jnp.zeros((pad_size, 5), np.int32)
-        data = jnp.concatenate([data, padding], axis=-2)
-        return cls(data, 0, n_actions, n_actions)
+        n_actions = jnp.int8(n_actions)
+        if n_actions == 0:
+            return cls.empty(max_queue_size)
+        data = jux.tree_util.batch_into_leaf([UnitAction.from_lux(act) for act in actions])
+        pad_size = max_queue_size - n_actions
+        if pad_size > 0:
+            padding = jax.tree_map(lambda x: x[None].repeat(pad_size), UnitAction.do_nothing())
+            data = jux.tree_util.concat_in_leaf([data, padding], axis=-1)
+        chex.assert_shape(data[0], (max_queue_size, ))
+        return cls(data, jnp.int8(0), n_actions, n_actions)
 
     def to_lux(self) -> List[LuxAction]:
         data = np.array(self._get_sorted_data())
-        data = data[:self.count, :]
-        return [UnitAction(code).to_lux() for code in data]
+        data = data[:, :self.count].T
+        return [format_action_vec(code) for code in data]
 
-    def _get_sorted_data(self):
+    def _get_sorted_data(self) -> UnitAction:
         '''Return data in the order of the queue. The first element is the front of the queue.'''
         idx = (jnp.arange(self.capacity) + self.front) % self.capacity
-        data = self.data[idx, :]
+        data = jax.tree_map(lambda x: x[idx], self.data)
         return data
 
     @property
-    def capacity(self):
-        return self.data.shape[-2]
+    def capacity(self) -> int:
+        return self.data[0].shape[-1]
 
     def push_back(self, action: UnitAction) -> "ActionQueue":
         """Push an action into the back of the queue. There is no way to thrown an error in jitted function. It is user's responsibility to check if the queue is full.
@@ -196,7 +212,7 @@ class ActionQueue(NamedTuple):
         # It is user's responsibility to check if the queue is full.
         # TODO: design an error code?
         def _push(action: UnitAction):
-            data = self.data.at[..., self.rear, :].set(action.code)
+            data = jax.tree_map(lambda data, v: data.at[..., self.rear].set(v), self.data, action)
             rear = (self.rear + 1) % self.capacity
             count = self.count + 1
             return ActionQueue(data, self.front, rear, count)
@@ -226,7 +242,7 @@ class ActionQueue(NamedTuple):
         # TODO: design an error code?
         def _push(action: UnitAction):
             front = (self.front - 1 + self.capacity) % self.capacity
-            data = self.data.at[..., front, :].set(action.code)
+            data = jax.tree_map(lambda data, v: data.at[..., front].set(v), self.data, action)
             count = self.count + 1
             return ActionQueue(data, front, self.rear, count)
 
@@ -267,11 +283,10 @@ class ActionQueue(NamedTuple):
         # There is no way to thrown an error in jitted function.
         # It is user's responsibility to check if the queue is empty.
         # TODO: design an error code?
-
-        return UnitAction(self.data[..., self.front, :])
+        return jax.tree_map(lambda x: x[..., self.front], self.data)
 
     def clear(self) -> "ActionQueue":
-        return ActionQueue(self.data, 0, 0, 0)
+        return ActionQueue(self.data, jnp.int8(0), jnp.int8(0), jnp.int8(0))
 
     def is_full(self) -> bool:
         return self.count == self.capacity
@@ -285,37 +300,94 @@ class ActionQueue(NamedTuple):
         mask = jnp.arange(self.capacity) < self.count
         self_data = self._get_sorted_data()
         other_data = other._get_sorted_data()
-        data_eq = (self_data == other_data).all(-1)  # bool[capacity]
+        data_eq = [a == b for a, b in zip(self_data, other_data)]
+        data_eq = reduce(lambda x, y: x & y, data_eq)  # and all attributes together
         data_eq = (data_eq | ~mask).all(-1)
         return (self.count == other.count) & data_eq
 
 
 class JuxAction(NamedTuple):
-    factory_action: Array  # int[2, MAX_N_FACTORIES]
+    factory_action: Array  # int8[2, MAX_N_FACTORIES]
     unit_action_queue: UnitAction  # UnitAction[2, MAX_N_UNITS, UNIT_ACTION_QUEUE_SIZE]
-    unit_action_queue_count: Array  # int[2, MAX_N_UNITS]
+    unit_action_queue_count: Array  # int8[2, MAX_N_UNITS]
     unit_action_queue_update: Array  # bool[2, MAX_N_UNITS]
 
     @classmethod
     def empty(cls, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig):
+        batch_shape = (
+            2,
+            buf_cfg.MAX_N_UNITS,
+            env_cfg.UNIT_ACTION_QUEUE_SIZE,
+        )
+        unit_action_queue = jax.tree_map(
+            lambda x: x[None].repeat(np.prod(batch_shape)).reshape(batch_shape),
+            UnitAction.do_nothing(),
+        )
         return cls(
-            factory_action=jnp.full((2, buf_cfg.MAX_N_FACTORIES), fill_value=FactoryAction.DO_NOTHING),
-            unit_action_queue=UnitAction(code=jnp.zeros(
-                (
-                    2,
-                    buf_cfg.MAX_N_UNITS,
-                    env_cfg.UNIT_ACTION_QUEUE_SIZE,
-                    5,
-                ),
-                dtype=jnp.int32,
-            )),
-            unit_action_queue_count=jnp.zeros((2, buf_cfg.MAX_N_UNITS), dtype=jnp.int32),
+            factory_action=jnp.full(
+                (2, buf_cfg.MAX_N_FACTORIES),
+                fill_value=jnp.int8(FactoryAction.DO_NOTHING),
+            ),
+            unit_action_queue=unit_action_queue,
+            unit_action_queue_count=jnp.zeros(
+                (2, buf_cfg.MAX_N_UNITS),
+                dtype=ActionQueue._field_types['count'],
+            ),
             unit_action_queue_update=jnp.zeros((2, buf_cfg.MAX_N_UNITS), dtype=jnp.bool_),
         )
 
     @staticmethod
     def from_lux(state, lux_action: Dict[str, Dict[str, Union[int, Array]]]) -> "JuxAction":
-        return state.parse_actions_from_dict(lux_action)
+        factory_action = np.full(
+            (2, state.MAX_N_FACTORIES),
+            fill_value=np.int8(FactoryAction.DO_NOTHING.value),
+        )
+        batch_shape = (2, state.MAX_N_UNITS, state.env_cfg.UNIT_ACTION_QUEUE_SIZE)
+        unit_action_queue = UnitAction(
+            action_type=np.empty(batch_shape, dtype=UnitAction._field_types['action_type'].dtype),
+            direction=np.empty(batch_shape, dtype=UnitAction._field_types['direction'].dtype),
+            resource_type=np.empty(batch_shape, dtype=UnitAction._field_types['resource_type'].dtype),
+            amount=np.empty(batch_shape, dtype=UnitAction._field_types['amount'].dtype),
+            repeat=np.empty(batch_shape, dtype=UnitAction._field_types['repeat'].dtype),
+        )
+        unit_action_queue_count = np.zeros((2, state.MAX_N_UNITS), dtype=ActionQueue._field_types['count'])
+        unit_action_queue_update = np.zeros((2, state.MAX_N_UNITS), dtype=np.bool_)
+
+        for player_id, player_actions in lux_action.items():
+            player_id = int(player_id.split('_')[-1])
+            for unit_id, action in player_actions.items():
+                if unit_id.startswith('factory_'):
+                    unit_id = int(unit_id.split('_')[-1])
+                    pid, idx = state.factory_id2idx[unit_id]
+                    assert pid == player_id
+                    assert 0 <= idx < state.n_factories[player_id]
+                    factory_action[player_id, idx] = action
+                elif unit_id.startswith('unit_'):
+                    unit_id = int(unit_id.split('_')[-1])
+                    pid, idx = state.unit_id2idx[unit_id]
+                    assert pid == player_id
+                    assert 0 <= idx < state.n_units[player_id]
+
+                    queue_size = len(action)
+                    action = np.array(action)
+                    for i in range(len(UnitAction._fields)):
+                        unit_action_queue[i][player_id, idx, :queue_size] = action[:, i]
+                    unit_action_queue_count[player_id, idx] = queue_size
+                    unit_action_queue_update[player_id, idx] = True
+                else:
+                    raise ValueError(f'Unknown unit_id: {unit_id}')
+
+        factory_action = jnp.array(factory_action)
+        unit_action_queue = jax.tree_map(jnp.array, unit_action_queue)
+        unit_action_queue_count = jnp.array(unit_action_queue_count)
+        unit_action_queue_update = jnp.array(unit_action_queue_update)
+
+        return JuxAction(
+            factory_action,
+            unit_action_queue,
+            unit_action_queue_count,
+            unit_action_queue_update,
+        )
 
     def to_lux(self: "JuxAction", state) -> Dict[str, Dict[str, Union[int, Array]]]:
         """Convert `JuxAction` to dict format that can be passed into `LuxAI2022` object.
@@ -367,25 +439,39 @@ class JuxAction(NamedTuple):
             for i in range(n_units):
                 if self.unit_action_queue_update[p, i]:
                     id = int(state.units.unit_id[p, i])
-                    queue = self.unit_action_queue.code[p, i, :self.unit_action_queue_count[p, i]].tolist()
+                    queue = np.array([
+                        self.unit_action_queue[a][p, i, :self.unit_action_queue_count[p, i]]
+                        for a in range(len(UnitAction._fields))
+                    ])
+                    queue = queue.T.tolist()
                     lux_action[f'player_{p}'][f'unit_{id}'] = queue
         return lux_action
 
     @staticmethod
     def from_torch(
-            factory_action: 'torch.Tensor',  # int[2, MAX_N_FACTORIES]
-            unit_action_queue: 'torch.Tensor',  # int[2, MAX_N_UNITS, UNIT_ACTION_QUEUE_SIZE]
-            unit_action_queue_count: 'torch.Tensor',  # int[2, MAX_N_UNITS]
+            factory_action: 'torch.Tensor',  # int8[2, MAX_N_FACTORIES]
+            unit_action_queue: UnitAction,  # UnitAction[2, MAX_N_UNITS, UNIT_ACTION_QUEUE_SIZE]
+            unit_action_queue_count: 'torch.Tensor',  # int8[2, MAX_N_UNITS]
             unit_action_queue_update: 'torch.Tensor',  # bool[2, MAX_N_UNITS]
             # env_cfg: EnvConfig,
             # buf_cfg: JuxBufferConfig,
     ):
-        assert factory_action.dtype == torch.int32
-        assert unit_action_queue.dtype == torch.int32
-        assert unit_action_queue_count.dtype == torch.int32
+        assert factory_action.dtype == torch.int8
+
+        for i, attr in enumerate(UnitAction._fields):
+            assert (
+                unit_action_queue[i].dtype == getattr(torch, UnitAction._field_types[attr].dtype.name),
+                f"unit_action_queue.{attr}.dtype must be {getattr(torch, UnitAction._field_types[attr].dtype.name)}, but got {unit_action_queue[i].dtype}.",
+            )
+        assert (
+            unit_action_queue_count.dtype == getattr(torch, ActionQueue._field_types['count'].dtype.name),
+            f"unit_action_queue_count.dtype must be {getattr(torch, ActionQueue._field_types['count'].dtype.name)}, but got {unit_action_queue_count.dtype}.",
+        )
         assert unit_action_queue_update.dtype == torch.uint8
 
-        queue_size = unit_action_queue.shape[-2]
+        chex.assert_equal_shape(unit_action_queue)
+
+        queue_size = unit_action_queue[0].shape[-1]
         max_n_units = unit_action_queue_count.shape[-1]
         max_n_factories = factory_action.shape[-1]
         # assert queue_size == env_cfg.UNIT_ACTION_QUEUE_SIZE
@@ -393,28 +479,27 @@ class JuxAction(NamedTuple):
         # assert max_n_factories == buf_cfg.MAX_N_FACTORIES
 
         assert factory_action.shape[-2:] == (2, max_n_factories)
-        assert unit_action_queue.shape[-4:] == (2, max_n_units, queue_size, 5)
         assert unit_action_queue_count.shape[-2:] == (2, max_n_units)
         assert unit_action_queue_update.shape[-2:] == (2, max_n_units)
 
-        batch_shape = factory_action.shape[:-2]
-        assert factory_action.shape[:-2] == batch_shape
-        assert unit_action_queue.shape[:-4] == batch_shape
-        assert unit_action_queue_count.shape[:-2] == batch_shape
-        assert unit_action_queue_update.shape[:-2] == batch_shape
+        env_batch_shape = factory_action.shape[:-2]
+        assert factory_action.shape[:-2] == env_batch_shape
+        assert unit_action_queue[0].shape[:-3] == env_batch_shape
+        assert unit_action_queue_count.shape[:-2] == env_batch_shape
+        assert unit_action_queue_update.shape[:-2] == env_batch_shape
 
         assert (unit_action_queue_count[unit_action_queue_update == False] == 0).all()
         assert (unit_action_queue_count[unit_action_queue_update == True] <= queue_size).all()
 
         factory_action = jux.torch.from_torch(factory_action)
-        unit_action_queue = jux.torch.from_torch(unit_action_queue)
+        unit_action_queue = jax.tree_map(jux.torch.from_torch, unit_action_queue)
         unit_action_queue_count = jux.torch.from_torch(unit_action_queue_count)
         unit_action_queue_update = jux.torch.from_torch(unit_action_queue_update)
         unit_action_queue_update = unit_action_queue_update.astype(jnp.bool_)
 
         return JuxAction(
             factory_action=factory_action,
-            unit_action_queue=UnitAction(unit_action_queue),
+            unit_action_queue=unit_action_queue,
             unit_action_queue_count=unit_action_queue_count,
             unit_action_queue_update=unit_action_queue_update,
         )

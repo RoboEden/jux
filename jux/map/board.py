@@ -10,8 +10,7 @@ from luxai2022.map.board import Board as LuxBoard
 
 from jux.config import EnvConfig, JuxBufferConfig, LuxEnvConfig
 from jux.map_generator.generator import GameMap, MapType, SymmetryType
-
-INT32_MAX = jnp.iinfo(jnp.int32).max
+from jux.utils import INT32_MAX
 
 radius = 6
 delta_xy = jnp.mgrid[-radius:radius + 1, -radius:radius + 1]  # int[2, 13, 13]

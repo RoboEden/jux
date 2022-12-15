@@ -13,8 +13,7 @@ from jux.actions import ActionQueue, UnitAction
 from jux.config import EnvConfig, UnitConfig
 from jux.map.position import Position
 from jux.unit_cargo import ResourceType, UnitCargo
-
-INT32_MAX = jnp.iinfo(jnp.int32).max
+from jux.utils import INT32_MAX
 
 
 class UnitType(IntEnum):
@@ -43,9 +42,9 @@ class Unit(NamedTuple):
     unit_cfg: UnitConfig
     unit_type: UnitType
     action_queue: ActionQueue  # ActionQueue[UNIT_ACTION_QUEUE_SIZE, 5]
-    team_id: int = INT32_MAX
+    team_id: int = jnp.int32(INT32_MAX)
     # team # no need team object, team_id is enough
-    unit_id: int = INT32_MAX
+    unit_id: int = jnp.int32(INT32_MAX)
     pos: Position = Position()
 
     cargo: UnitCargo = UnitCargo()
@@ -89,8 +88,8 @@ class Unit(NamedTuple):
         unit_id = int(lux_unit.unit_id[len('unit_'):])
         return Unit(
             unit_type=jnp.int32(UnitType.from_lux(lux_unit.unit_type)),
-            team_id=lux_unit.team_id,
-            unit_id=unit_id,
+            team_id=jnp.int32(lux_unit.team_id),
+            unit_id=jnp.int32(unit_id),
             pos=Position.from_lux(lux_unit.pos),
             cargo=UnitCargo.from_lux(lux_unit.cargo),
             action_queue=ActionQueue.from_lux(lux_unit.action_queue, env_cfg.UNIT_ACTION_QUEUE_SIZE),
@@ -134,7 +133,7 @@ class Unit(NamedTuple):
         '''
 
         def _repeat_minus_one(action_queue: ActionQueue) -> ActionQueue:
-            data = action_queue.data.at[action_queue.front, -1].add(-1)
+            data = action_queue.data._replace(repeat=action_queue.data.repeat.at[action_queue.front].add(-1))
             return action_queue._replace(data=data)
 
         def _pop_and_push_back(action_queue: ActionQueue) -> ActionQueue:

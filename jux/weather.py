@@ -6,8 +6,7 @@ from jax import lax
 from jax import numpy as jnp
 
 import jux
-
-INT32_MAX = jnp.iinfo(jnp.int32).max
+from jux.utils import INT32_MAX
 
 
 class Weather(IntEnum):

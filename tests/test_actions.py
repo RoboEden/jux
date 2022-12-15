@@ -89,7 +89,7 @@ class TestJuxAction():
         torch_act = jux_act.to_torch()
         jux_from_torch = JuxAction.from_torch(
             torch_act.factory_action,
-            torch_act.unit_action_queue.code,
+            torch_act.unit_action_queue,
             torch_act.unit_action_queue_count,
             torch_act.unit_action_queue_update,
         )

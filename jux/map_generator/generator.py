@@ -13,8 +13,7 @@ from luxai2022.map_generator.visualize import viz as lux_viz
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.map_generator.flood import boundary_sum, component_sum, flood_fill
 from jux.map_generator.symnoise import SymmetryNoise, SymmetryType, symmetrize
-
-INT32_MAX = jnp.iinfo(jnp.int32).max
+from jux.utils import INT32_MAX
 
 
 class MapType(IntEnum):
