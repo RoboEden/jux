@@ -90,17 +90,17 @@ class Factory(NamedTuple):
     @classmethod
     def from_lux(cls, lux_factory: LuxFactory) -> "Factory":
         return cls(
-            team_id=lux_factory.team_id,
-            unit_id=int(lux_factory.unit_id[len('factory_'):]),
+            team_id=jnp.int32(lux_factory.team_id),
+            unit_id=jnp.int32(lux_factory.unit_id[len('factory_'):]),
             pos=Position.from_lux(lux_factory.pos),
-            power=lux_factory.power,
+            power=jnp.int32(lux_factory.power),
             cargo=UnitCargo.from_lux(lux_factory.cargo),
         )
 
     def to_lux(self, teams: Dict[str, LuxTeam]) -> LuxFactory:
         lux_factory = LuxFactory(
-            team=teams[f"player_{self.team_id}"],
-            unit_id=f"factory_{self.unit_id}",
+            team=teams[f"player_{int(self.team_id)}"],
+            unit_id=f"factory_{int(self.unit_id)}",
             num_id=int(self.num_id),
         )
         lux_factory.pos = self.pos.to_lux()

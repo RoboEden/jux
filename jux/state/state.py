@@ -839,7 +839,7 @@ class State(NamedTuple):
             self = self._replace(units=new_units)
         '''
         # Factories are immune to weather thanks to using nuclear reactors instead
-        new_factory_power = self.factories.power + self.env_cfg.FACTORY_CHARGE * self.factory_mask
+        new_factory_power = self.factories.power + jnp.where(self.factory_mask, self.env_cfg.FACTORY_CHARGE, 0)
         self = self._replace(factories=self.factories._replace(power=new_factory_power))
 
         # update step number
