@@ -39,62 +39,55 @@ class UnitType(IntEnum):
 
 
 class Unit(NamedTuple):
-    unit_cfg: UnitConfig
-    unit_type: UnitType
+    unit_type: UnitType  # int8
     action_queue: ActionQueue  # ActionQueue[UNIT_ACTION_QUEUE_SIZE, 5]
-    team_id: int = jnp.int32(INT32_MAX)
+    team_id: jnp.int8 = jnp.int8(INT32_MAX)
     # team # no need team object, team_id is enough
-    unit_id: int = jnp.int32(INT32_MAX)
+    unit_id: jnp.int32 = jnp.int32(INT32_MAX)
     pos: Position = Position()
 
     cargo: UnitCargo = UnitCargo()
-    power: int = jnp.int32(0)
+    power: jnp.int32 = jnp.int32(0)
 
-    @classmethod
-    def new(cls, team_id: int, unit_type: Union[UnitType, int], unit_id: int, env_cfg: EnvConfig):
-        unit_cfg = jax.lax.switch(unit_type, [
-            lambda: env_cfg.ROBOTS[UnitType.LIGHT],
-            lambda: env_cfg.ROBOTS[UnitType.HEAVY],
+    def get_cfg(self, attr: str, unit_cfgs: Tuple[UnitConfig, UnitConfig]):
+        attr_values = jnp.array([
+            getattr(unit_cfgs[0], attr),
+            getattr(unit_cfgs[1], attr),
         ])
-        return cls(
-            unit_type=UnitType(unit_type) if isinstance(unit_type, int) else unit_type,
-            team_id=team_id,
-            unit_id=unit_id,
+        return attr_values[self.unit_type]
+
+    @staticmethod
+    def new(team_id: int, unit_type: Union[UnitType, int], unit_id: int, env_cfg: EnvConfig):
+        unit = Unit(
+            unit_type=jnp.int8(unit_type),
+            team_id=Unit._field_types['team_id'](team_id),
+            unit_id=Unit._field_types['unit_id'](unit_id),
             pos=Position(),
             cargo=UnitCargo(),
             action_queue=ActionQueue.empty(env_cfg.UNIT_ACTION_QUEUE_SIZE),
-            unit_cfg=unit_cfg,
-            power=unit_cfg.INIT_POWER,
+            power=None,
         )
+        init_power = unit.get_cfg('INIT_POWER', env_cfg.ROBOTS)
+        return unit._replace(power=Unit._field_types['power'](init_power))
 
     @classmethod
     def empty(cls, env_cfg: EnvConfig):
         return cls(
-            unit_type=jnp.int32(UnitType.LIGHT),
-            unit_cfg=env_cfg.ROBOTS[UnitType.LIGHT],
+            unit_type=jnp.int8(UnitType.LIGHT),
             action_queue=ActionQueue.empty(env_cfg.UNIT_ACTION_QUEUE_SIZE),
         )
-
-    @property
-    def cargo_space(self):
-        return self.unit_cfg.CARGO_SPACE
-
-    @property
-    def battery_capacity(self):
-        return self.unit_cfg.BATTERY_CAPACITY
 
     @classmethod
     def from_lux(cls, lux_unit: LuxUnit, env_cfg: EnvConfig) -> "Unit":
         unit_id = int(lux_unit.unit_id[len('unit_'):])
         return Unit(
-            unit_type=jnp.int32(UnitType.from_lux(lux_unit.unit_type)),
-            team_id=jnp.int32(lux_unit.team_id),
-            unit_id=jnp.int32(unit_id),
+            unit_type=jnp.int8(UnitType.from_lux(lux_unit.unit_type)),
+            team_id=Unit._field_types['team_id'](lux_unit.team_id),
+            unit_id=Unit._field_types['unit_id'](unit_id),
             pos=Position.from_lux(lux_unit.pos),
             cargo=UnitCargo.from_lux(lux_unit.cargo),
             action_queue=ActionQueue.from_lux(lux_unit.action_queue, env_cfg.UNIT_ACTION_QUEUE_SIZE),
-            unit_cfg=UnitConfig.from_lux(lux_unit.unit_cfg),
-            power=lux_unit.power,
+            power=Unit._field_types['power'](lux_unit.power),
         )
 
     def to_lux(self, lux_teams: Dict[str, LuxTeam], lux_env_cfg: LuxEnvConfig) -> LuxUnit:
@@ -165,16 +158,25 @@ class Unit(NamedTuple):
     def is_heavy(self) -> Union[bool, Array]:
         return self.unit_type == UnitType.HEAVY
 
-    def move_power_cost(self, rubble_at_target: int):
-        return self.unit_cfg.MOVE_COST + self.unit_cfg.RUBBLE_MOVEMENT_COST * rubble_at_target
+    def move_power_cost(self, rubble_at_target: int, unit_cfgs: Tuple[UnitConfig, UnitConfig]):
+        move_cost = self.get_cfg("MOVE_COST", unit_cfgs)
+        rubble_movement_cost = self.get_cfg("RUBBLE_MOVEMENT_COST", unit_cfgs)
+        return move_cost + rubble_movement_cost * rubble_at_target
 
-    def add_resource(self, resource: ResourceType, amount: int) -> Tuple['Unit', Union[int, Array]]:
+    def add_resource(
+        self,
+        resource: ResourceType,
+        amount: int,
+        unit_cfgs: Tuple[UnitConfig, UnitConfig],
+    ) -> Tuple['Unit', Union[int, Array]]:
         # If resource != ResourceType.power, call UnitCargo.add_resource.
         # else, call Unit.add_power.
         amount = jnp.maximum(amount, 0)
+        cargo_space = self.get_cfg("CARGO_SPACE", unit_cfgs)
+        battery_capacity = self.get_cfg("BATTERY_CAPACITY", unit_cfgs)
 
         def add_power(self, resource: ResourceType, amount: int):
-            transfer_amount = jnp.minimum(self.battery_capacity - self.power, amount)
+            transfer_amount = jnp.minimum(battery_capacity - self.power, amount)
             new_unit = self._replace(power=self.power + transfer_amount)
             return new_unit, transfer_amount
 
@@ -182,7 +184,7 @@ class Unit(NamedTuple):
             new_cargo, transfer_amount = self.cargo.add_resource(
                 resource=resource,
                 amount=amount,
-                cargo_space=self.cargo_space,
+                cargo_space=cargo_space,
             )
             new_unit = self._replace(cargo=new_cargo)
             return new_unit, transfer_amount
@@ -219,9 +221,11 @@ class Unit(NamedTuple):
         )
         return new_unit, transfer_amount
 
-    def gain_power(self, power_gain_factor):
-        new_power = self.power + jnp.ceil(self.unit_cfg.CHARGE * power_gain_factor).astype(jnp.int32)
-        new_power = jnp.minimum(new_power, self.battery_capacity)
+    def gain_power(self, power_gain_factor, unit_cfgs: Tuple[UnitConfig, UnitConfig]):
+        charge = self.get_cfg("CHARGE", unit_cfgs)
+        battery_capacity = self.get_cfg("BATTERY_CAPACITY", unit_cfgs)
+        new_power = self.power + jnp.ceil(charge * power_gain_factor).astype(jnp.int32)
+        new_power = jnp.minimum(new_power, battery_capacity)
         return self._replace(power=new_power)
 
     def __eq__(self, other: object) -> bool:

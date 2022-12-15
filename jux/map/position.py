@@ -3,14 +3,13 @@ from typing import NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
-from jax import Array
 from luxai2022.map.position import Position as LuxPosition
 
-from jux.utils import INT32_MAX
+from jux.utils import INT8_MAX, INT32_MAX
 
 
 class Position(NamedTuple):
-    pos: Array = jnp.full((2, ), fill_value=INT32_MAX, dtype=jnp.int32)  # int32[..., 2]
+    pos: jnp.int8 = jnp.full((2, ), fill_value=INT8_MAX, dtype=jnp.int8)  # int8[..., 2]
 
     @property
     def x(self) -> int:
@@ -22,7 +21,7 @@ class Position(NamedTuple):
 
     @classmethod
     def from_lux(cls, lux_pos: LuxPosition) -> "Position":
-        return cls(jnp.array(lux_pos.pos, dtype=jnp.int32))
+        return cls(jnp.array(lux_pos.pos, dtype=jnp.int8))
 
     def to_lux(self) -> LuxPosition:
         return LuxPosition(np.array(self.pos))
@@ -48,10 +47,12 @@ class Direction(IntEnum):
     LEFT = 4
 
 
-direct2delta_xy = jnp.array([
-    [0, 0],  # stay
-    [0, -1],  # up
-    [1, 0],  # right
-    [0, 1],  # down
-    [-1, 0],  # left
-])
+direct2delta_xy = jnp.array(
+    [
+        [0, 0],  # stay
+        [0, -1],  # up
+        [1, 0],  # right
+        [0, 1],  # down
+        [-1, 0],  # left
+    ],
+    dtype=jnp.int8)

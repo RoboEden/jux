@@ -664,7 +664,11 @@ class State(NamedTuple):
         failed_players = failed_players | failed_action
 
         # update units action queue
-        update_power_req = self.units.unit_cfg.ACTION_QUEUE_POWER_COST * weather_cfg["power_loss_factor"]
+        action_queue_power_cost = jnp.array([
+            self.env_cfg.ROBOTS[0].ACTION_QUEUE_POWER_COST,
+            self.env_cfg.ROBOTS[1].ACTION_QUEUE_POWER_COST,
+        ])
+        update_power_req = action_queue_power_cost[self.units.unit_type] * weather_cfg["power_loss_factor"]
         chex.assert_shape(update_power_req, (2, self.MAX_N_UNITS))
         update_queue = actions.unit_action_queue_update & unit_mask & (update_power_req <= self.units.power)
         new_power = jnp.where(update_queue, self.units.power - update_power_req, self.units.power)
@@ -784,7 +788,7 @@ class State(NamedTuple):
 
         # power gain
         def _gain_power(self: 'State') -> Unit:
-            new_units = self.units.gain_power(weather_cfg["power_gain_factor"])
+            new_units = self.units.gain_power(weather_cfg["power_gain_factor"], self.env_cfg.ROBOTS)
             new_units = new_units._replace(power=new_units.power * self.unit_mask)
             return new_units
 
@@ -844,8 +848,11 @@ class State(NamedTuple):
 
         # deduce from unit
         transfer_amount = jnp.where(valid, actions.amount, 0)  # int[2, U]
-        units, transfer_amount = jax.vmap(jax.vmap(Unit.sub_resource))(self.units, actions.resource_type,
-                                                                       transfer_amount)
+        units, transfer_amount = jax.vmap(jax.vmap(Unit.sub_resource))(
+            self.units,
+            actions.resource_type,
+            transfer_amount,
+        )
         self = self._replace(units=units)
 
         # transfer to factory
@@ -874,13 +881,15 @@ class State(NamedTuple):
             target_unit_idx[..., 1],
             actions.resource_type,
         )].add(transferred_resource, mode='drop')  # int[2, U, 4]
-        unit_stock = jnp.minimum(unit_stock, self.units.unit_cfg.CARGO_SPACE[..., None])  # int[2, U, 4]
+        cargo_space = self.units.get_cfg("CARGO_SPACE", self.env_cfg.ROBOTS)
+        unit_stock = jnp.minimum(unit_stock, cargo_space[..., None])  # int[2, U, 4]
 
         unit_power = self.units.power.at[(
             jnp.arange(2)[:, None],
             target_unit_idx[..., 1],
         )].add(transferred_power, mode='drop')  # int[2, U]
-        unit_power = jnp.minimum(unit_power, self.units.unit_cfg.BATTERY_CAPACITY)  # int[2, U]
+        battery_capacity = self.units.get_cfg("BATTERY_CAPACITY", self.env_cfg.ROBOTS)
+        unit_power = jnp.minimum(unit_power, battery_capacity)  # int[2, U]
         units = self.units._replace(
             cargo=UnitCargo(unit_stock),
             power=unit_power,
@@ -975,12 +984,14 @@ class State(NamedTuple):
             real_pickup_amount[..., ResourceType.power],
             mode='drop',
         )  # int[2, U]
-        units_power = jnp.minimum(units_power, self.units.unit_cfg.BATTERY_CAPACITY)
+        battery_capacity = self.units.get_cfg("BATTERY_CAPACITY", self.env_cfg.ROBOTS)
+        units_power = jnp.minimum(units_power, battery_capacity)
         units_stock = self.units.cargo.stock.at[unit_team_idx, unit_idx].add(
             real_pickup_amount[..., :4],
             mode='drop',
         )  # int[2, U, 4]
-        units_stock = jnp.minimum(units_stock, self.units.unit_cfg.CARGO_SPACE[..., None])
+        cargo_space = self.units.get_cfg("CARGO_SPACE", self.env_cfg.ROBOTS)
+        units_stock = jnp.minimum(units_stock, cargo_space[..., None])
         new_units = self.units._replace(power=units_power, cargo=UnitCargo(units_stock))
         self = self._replace(factories=new_factories, units=new_units)
 
@@ -994,7 +1005,7 @@ class State(NamedTuple):
         valid = (actions.action_type == UnitActionType.DIG) & unit_mask
 
         # cannot dig if no enough power
-        power_cost = units.unit_cfg.DIG_COST * weather_cfg["power_loss_factor"]
+        power_cost = units.get_cfg("DIG_COST", self.env_cfg.ROBOTS) * weather_cfg["power_loss_factor"]
         valid = valid & (power_cost <= units.power)
 
         # cannot dig if on top of a factory
@@ -1008,7 +1019,7 @@ class State(NamedTuple):
     def _handle_dig_actions(self: 'State', actions: UnitAction, weather_cfg: Dict[str, np.ndarray],
                             valid: Array) -> Tuple['State', Array]:
         units = self.units
-        power_cost = self.units.unit_cfg.DIG_COST * weather_cfg["power_loss_factor"]
+        power_cost = units.get_cfg("DIG_COST", self.env_cfg.ROBOTS) * weather_cfg["power_loss_factor"]
         x, y = self.units.pos.x, self.units.pos.y
 
         # deduce power
@@ -1017,22 +1028,28 @@ class State(NamedTuple):
 
         # rubble
         dig_rubble = valid & (self.board.rubble[x, y] > 0)
-        new_rubble = self.board.rubble.at[x, y].add(-units.unit_cfg.DIG_RUBBLE_REMOVED * dig_rubble)
+        dig_rubble_removed = units.get_cfg("DIG_RUBBLE_REMOVED", self.env_cfg.ROBOTS)
+        new_rubble = self.board.rubble.at[x, y].add(-dig_rubble_removed * dig_rubble)
         new_rubble = jnp.maximum(new_rubble, 0)
 
         # lichen
         dig_lichen = valid & ~dig_rubble & (self.board.lichen[x, y] > 0)
-        new_lichen = self.board.lichen.at[x, y].add(-units.unit_cfg.DIG_LICHEN_REMOVED * dig_lichen)
+        dig_lichen_removed = units.get_cfg("DIG_LICHEN_REMOVED", self.env_cfg.ROBOTS)
+        new_lichen = self.board.lichen.at[x, y].add(-dig_lichen_removed * dig_lichen)
         new_lichen = jnp.maximum(new_lichen, 0)
+
+        # resources
+        add_resource = jax.vmap(Unit.add_resource, in_axes=(0, None, 0, None))
+        add_resource = jax.vmap(add_resource, in_axes=(0, None, 0, None))
+        dig_resource_gain = units.get_cfg("DIG_RESOURCE_GAIN", self.env_cfg.ROBOTS)
 
         # ice
         dig_ice = valid & ~dig_rubble & ~dig_lichen & self.board.ice[x, y]
-        add_resource = jax.vmap(jax.vmap(Unit.add_resource, in_axes=(0, None, 0)), in_axes=(0, None, 0))
-        units, _ = add_resource(units, ResourceType.ice, units.unit_cfg.DIG_RESOURCE_GAIN * dig_ice)
+        units, _ = add_resource(units, ResourceType.ice, dig_resource_gain * dig_ice, self.env_cfg.ROBOTS)
 
         # ore
         dig_ore = valid & ~dig_rubble & ~dig_lichen & ~dig_ice & (self.board.ore[x, y] > 0)
-        units, _ = add_resource(units, ResourceType.ore, units.unit_cfg.DIG_RESOURCE_GAIN * dig_ore)
+        units, _ = add_resource(units, ResourceType.ore, dig_resource_gain * dig_ore, self.env_cfg.ROBOTS)
 
         new_self = self._replace(
             units=units,
@@ -1048,8 +1065,8 @@ class State(NamedTuple):
         actions: UnitAction,
         weather_cfg: Dict[str, np.ndarray],
     ) -> Array:
-
-        power_cost = self.units.unit_cfg.SELF_DESTRUCT_COST * weather_cfg["power_loss_factor"]
+        power_cost = self.units.get_cfg("SELF_DESTRUCT_COST", self.env_cfg.ROBOTS)
+        power_cost = power_cost * weather_cfg["power_loss_factor"]
         valid = (actions.action_type == UnitActionType.SELF_DESTRUCT) & (self.units.power >= power_cost)
 
         return valid
@@ -1163,7 +1180,7 @@ class State(NamedTuple):
 
         # can't move if power is not enough
         target_rubble = self.board.rubble[new_pos.x, new_pos.y]
-        power_cost = jax.vmap(jax.vmap(Unit.move_power_cost))(self.units, target_rubble)
+        power_cost = self.units.move_power_cost(target_rubble, self.env_cfg.ROBOTS)
         power_cost = power_cost * weather_cfg["power_loss_factor"]
         is_moving = is_moving & (power_cost <= self.units.power)
 
@@ -1257,10 +1274,11 @@ class State(NamedTuple):
         units = self.units
 
         # add rubble to the board, and remove lichen
+        rubble_after_destruction = units.get_cfg("RUBBLE_AFTER_DESTRUCTION", self.env_cfg.ROBOTS)
         rubble = self.board.rubble.at[(
             units.pos.x,
             units.pos.y,
-        )].add(dead * self.units.unit_cfg.RUBBLE_AFTER_DESTRUCTION, mode='drop')
+        )].add(dead * rubble_after_destruction, mode='drop')
         rubble = jnp.minimum(rubble, self.env_cfg.MAX_RUBBLE)
         lichen = self.board.lichen.at[(
             units.pos.x,
@@ -1527,7 +1545,7 @@ class State(NamedTuple):
         x, y = self.units.pos.x, self.units.pos.y  # int[]
         chex.assert_shape(x, (2, self.MAX_N_UNITS))
         chex.assert_shape(y, (2, self.MAX_N_UNITS))
-        rubble_amount = self.units.unit_cfg.RUBBLE_AFTER_DESTRUCTION
+        rubble_amount = self.units.get_cfg("RUBBLE_AFTER_DESTRUCTION", self.env_cfg.ROBOTS)
         chex.assert_shape(rubble_amount, (2, self.MAX_N_UNITS))
 
         rubble = self.board.rubble.at[x, y].add(rubble_amount, mode='drop')

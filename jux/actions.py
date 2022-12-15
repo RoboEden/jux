@@ -15,7 +15,7 @@ from luxai2022.unit import UnitType as LuxUnitType
 import jux.torch
 import jux.tree_util
 from jux.config import EnvConfig, JuxBufferConfig
-from jux.map.position import Direction
+from jux.map.position import Direction, Position
 from jux.team import FactionTypes
 from jux.unit_cargo import ResourceType
 from jux.utils import INT8_MAX, INT32_MAX
@@ -609,10 +609,13 @@ def factory_placement_action_from_lux(lux_act: Dict[str, Dict[str, Any]]) -> Tup
         water (Array): int[2], The initial water amount of the factory.
         metal (Array): int[2], The initial metal amount of the factory.
     '''
-    spawn = jnp.array([
-        lux_act['player_0']['spawn'] if lux_act['player_0'] else [0, 0],
-        lux_act['player_1']['spawn'] if lux_act['player_1'] else [0, 0],
-    ])
+    spawn = jnp.array(
+        [
+            lux_act['player_0']['spawn'] if lux_act['player_0'] else [0, 0],
+            lux_act['player_1']['spawn'] if lux_act['player_1'] else [0, 0],
+        ],
+        dtype=Position._field_types["pos"],
+    )
     water = jnp.array([
         lux_act['player_0']['water'] if lux_act['player_0'] else 0,
         lux_act['player_1']['water'] if lux_act['player_1'] else 0,

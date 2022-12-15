@@ -9,6 +9,7 @@ from luxai2022.env import Unit as LuxUnit
 from luxai2022.map.board import Board as LuxBoard
 
 from jux.config import EnvConfig, JuxBufferConfig, LuxEnvConfig
+from jux.map.position import Position
 from jux.map_generator.generator import GameMap, MapType, SymmetryType
 from jux.utils import INT32_MAX
 
@@ -134,7 +135,13 @@ class Board(NamedTuple):
 
         factory_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
         factory_occupancy_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
-        factory_pos = jnp.full(shape=(2, buf_cfg.MAX_N_FACTORIES, 2), fill_value=INT32_MAX)
+
+        pos_dtype = Position._field_types['pos']
+        factory_pos = jnp.full(
+            shape=(2, buf_cfg.MAX_N_FACTORIES, 2),
+            fill_value=jnp.iinfo(pos_dtype).max,
+            dtype=pos_dtype,
+        )
 
         return cls(
             height=height,
@@ -181,9 +188,14 @@ class Board(NamedTuple):
         factory_occupancy_map = factory_occupancy_map.at[:height, :width].set(lux_board.factory_occupancy_map)
         factory_occupancy_map = factory_occupancy_map.at[factory_occupancy_map == -1].set(INT32_MAX)
 
-        factory_pos = jnp.full(shape=(buf_cfg.MAX_N_FACTORIES * 2, 2), fill_value=INT32_MAX, dtype=jnp.int32)
+        pos_dtype = Position._field_types['pos']
+        factory_pos = jnp.full(
+            shape=(buf_cfg.MAX_N_FACTORIES * 2, 2),
+            fill_value=jnp.iinfo(pos_dtype).max,
+            dtype=pos_dtype,
+        )
         n_factory = len(xs)
-        factory_pos = factory_pos.at[:n_factory, :].set(jnp.array([xs, ys], jnp.int32).T)
+        factory_pos = factory_pos.at[:n_factory, :].set(jnp.array([xs, ys], pos_dtype).T)
 
         # put unit_id to map
         xs = []
