@@ -37,8 +37,14 @@ class GameMap(NamedTuple):
     ice: Array  # bool[height, width]
     ore: Array  # bool[height, width]
     symmetry: SymmetryType
-    width: int
-    height: int
+
+    @property
+    def width(self) -> int:
+        return self.rubble.shape[1]
+
+    @property
+    def height(self) -> int:
+        return self.rubble.shape[0]
 
     @staticmethod
     def random_map(seed: jnp.int32 = None,
@@ -56,34 +62,26 @@ class GameMap(NamedTuple):
         return map_rand
 
     @classmethod
-    def from_lux(cls: Type['GameMap'], lux_map: LuxGameMap, buf_cfg: JuxBufferConfig) -> "GameMap":
-        buf_size = (buf_cfg.MAX_MAP_SIZE, buf_cfg.MAX_MAP_SIZE)
-        height, width = lux_map.height, lux_map.width
-
-        rubble = jnp.empty(buf_size, dtype=jnp.int32).at[:height, :width].set(lux_map.rubble.astype(np.int32))
-        ice = jnp.empty(buf_size, dtype=jnp.bool_).at[:height, :width].set(lux_map.ice != 0)
-        ore = jnp.empty(buf_size, dtype=jnp.bool_).at[:height, :width].set(lux_map.ore != 0)
+    def from_lux(cls: Type['GameMap'], lux_map: LuxGameMap) -> "GameMap":
+        rubble = jnp.array(lux_map.rubble.astype(np.int32))
+        ice = jnp.array(lux_map.ice != 0)
+        ore = jnp.array(lux_map.ore != 0)
 
         return cls(
             rubble,
             ice,
             ore,
             symmetry=SymmetryType.from_lux(lux_map.symmetry),
-            width=width,
-            height=height,
         )
 
     def to_lux(self) -> LuxGameMap:
-        width, height = self.width, self.height
-
-        rubble = np.array(self.rubble[:height, :width], dtype=np.int32)
-        ice = np.array(self.ice[:height, :width], dtype=np.int32)
-        ore = np.array(self.ore[:height, :width], dtype=np.int32)
+        rubble = np.array(self.rubble, dtype=np.int32)
+        ice = np.array(self.ice, dtype=np.int32)
+        ore = np.array(self.ore, dtype=np.int32)
 
         return LuxGameMap(rubble, ice, ore, SymmetryType.to_lux(self.symmetry))
 
     def __eq__(self, __o: 'GameMap') -> bool:
-        width, height = self.width, self.height
         if not isinstance(__o, GameMap):
             return False
         return ((self.width == __o.width) & (self.height == __o.height) & (self.symmetry == __o.symmetry)
@@ -174,8 +172,6 @@ def cave(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: Sym
         ice=ice,
         ore=ore,
         symmetry=symmetry,
-        width=width,
-        height=height,
     )
 
 
@@ -240,8 +236,6 @@ def craters(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: 
         ice=ice,
         ore=ore,
         symmetry=symmetry,
-        width=width,
-        height=height,
     )
 
 
@@ -406,8 +400,6 @@ def mountain(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise:
         ice=ice,
         ore=ore,
         symmetry=symmetry,
-        width=width,
-        height=height,
     )
 
 
@@ -488,8 +480,6 @@ def island(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: S
         ice=ice,
         ore=ore,
         symmetry=symmetry,
-        width=width,
-        height=height,
     )
 
 

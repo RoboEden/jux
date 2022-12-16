@@ -29,10 +29,10 @@ class TestGameMap(chex.TestCase):
             width=buf_cfg.MAX_MAP_SIZE,
             height=buf_cfg.MAX_MAP_SIZE,
         )
-        game_map = GameMap.from_lux(lux_game_map, buf_cfg)
+        game_map = GameMap.from_lux(lux_game_map)
 
         assert lux_game_map_eq(game_map.to_lux(), lux_game_map)
-        assert game_map == GameMap.from_lux((game_map.to_lux()), buf_cfg)
+        assert game_map == GameMap.from_lux((game_map.to_lux()))
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True, without_device=True)
     def test_map(self):

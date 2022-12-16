@@ -11,7 +11,7 @@ from luxai2022.map.board import Board as LuxBoard
 from jux.config import EnvConfig, JuxBufferConfig, LuxEnvConfig
 from jux.map.position import Position
 from jux.map_generator.generator import GameMap, MapType, SymmetryType
-from jux.utils import INT32_MAX
+from jux.utils import INT8_MAX, INT32_MAX
 
 radius = 6
 delta_xy = jnp.mgrid[-radius:radius + 1, -radius:radius + 1]  # int[2, 13, 13]
@@ -38,8 +38,6 @@ class Board(NamedTuple):
     lichen[:MAP_SIZE, :MAP_SIZE]
     ```
     '''
-    height: int
-    width: int
     seed: int
     factories_per_team: int
 
@@ -82,6 +80,26 @@ class Board(NamedTuple):
     '''
 
     @property
+    def height(self) -> int:
+        return self.map.height
+
+    @property
+    def width(self) -> int:
+        return self.map.width
+
+    @property
+    def rubble(self) -> Array:
+        return self.map.rubble
+
+    @property
+    def ice(self) -> Array:
+        return self.map.ice
+
+    @property
+    def ore(self) -> Array:
+        return self.map.ore
+
+    @property
     def valid_spawns_mask(self) -> Array:  # bool[height, width]
         # valid_spawns_mask = np.ones((self.height, self.width), dtype=jnp.bool_)  # bool[height, width]
         valid_spawns_mask = (~self.map.ice & ~self.map.ore)  # bool[height, width]
@@ -101,8 +119,8 @@ class Board(NamedTuple):
 
     @classmethod
     def new(cls, seed: int, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig):
-        height = buf_cfg.MAX_MAP_SIZE
-        width = buf_cfg.MAX_MAP_SIZE
+        height = buf_cfg.MAP_SIZE
+        width = buf_cfg.MAP_SIZE
         key = jax.random.PRNGKey(seed)
         key, subkey = jax.random.split(key)
         map_type = jax.random.choice(
@@ -144,8 +162,6 @@ class Board(NamedTuple):
         )
 
         return cls(
-            height=height,
-            width=width,
             seed=seed,
             factories_per_team=factories_per_team,
             map=map,
@@ -159,14 +175,12 @@ class Board(NamedTuple):
 
     @classmethod
     def from_lux(cls: Type['Board'], lux_board: LuxBoard, buf_cfg: JuxBufferConfig) -> "Board":
-        buf_size = (buf_cfg.MAX_MAP_SIZE, buf_cfg.MAX_MAP_SIZE)
         height, width = lux_board.height, lux_board.width
 
         lichen = jnp.zeros(shape=(height, width), dtype=jnp.int32)
         lichen = lichen.at[:height, :width].set(lux_board.lichen)
 
-        lichen_strains = jnp.full(shape=(height, width), fill_value=INT32_MAX, dtype=jnp.int32)
-        lichen_strains = lichen_strains.at[:height, :width].set(lux_board.lichen_strains)
+        lichen_strains = jnp.array(lux_board.lichen_strains, dtype=jnp.int32)
         lichen_strains = lichen_strains.at[lichen_strains == -1].set(INT32_MAX)
 
         # put factories id to map
@@ -180,12 +194,11 @@ class Board(NamedTuple):
             xs.append(x)
             ys.append(y)
             factory_id.append(v)
-        factory_map = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)  # default value is INT32_MAX
+        factory_map = jnp.full((height, width), fill_value=INT32_MAX, dtype=jnp.int32)  # default value is INT32_MAX
         factory_id = jnp.array(factory_id, dtype=jnp.int32)
         factory_map = factory_map.at[xs, ys].set(factory_id)
 
-        factory_occupancy_map = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)
-        factory_occupancy_map = factory_occupancy_map.at[:height, :width].set(lux_board.factory_occupancy_map)
+        factory_occupancy_map = jnp.array(lux_board.factory_occupancy_map, dtype=jnp.int32)
         factory_occupancy_map = factory_occupancy_map.at[factory_occupancy_map == -1].set(INT32_MAX)
 
         pos_dtype = Position._field_types['pos']
@@ -210,18 +223,16 @@ class Board(NamedTuple):
             xs.append(x)
             ys.append(y)
             unit_id.append(v)
-        units_map = jnp.full(buf_size, fill_value=INT32_MAX, dtype=jnp.int32)  # default value is INT32_MAX
+        units_map = jnp.full((height, width), fill_value=INT32_MAX, dtype=jnp.int32)  # default value is INT32_MAX
         unit_id = jnp.array(unit_id, dtype=jnp.int32)
         units_map = units_map.at[xs, ys].set(unit_id)
 
         seed = lux_board.seed if lux_board.seed is not None else INT32_MAX
 
         return cls(
-            height=height,
-            width=width,
             seed=seed,
             factories_per_team=lux_board.factories_per_team,
-            map=GameMap.from_lux(lux_board.map, buf_cfg),
+            map=GameMap.from_lux(lux_board.map),
             lichen=lichen,
             lichen_strains=lichen_strains,
             units_map=units_map,
@@ -245,13 +256,12 @@ class Board(NamedTuple):
         lux_board.seed = self.seed if self.seed != INT32_MAX else None
         lux_board.factories_per_team = int(self.factories_per_team)
         lux_board.map = self.map.to_lux()
-        lux_board.lichen = np.array(self.lichen[:self.height, :self.width])
+        lux_board.lichen = np.array(self.lichen)
 
-        lichen_strains = self.lichen_strains[:self.height, :self.width]
-        lichen_strains = lichen_strains.at[lichen_strains == INT32_MAX].set(-1)
+        lichen_strains = self.lichen_strains.at[self.lichen_strains == INT32_MAX].set(-1)
         lux_board.lichen_strains = np.array(lichen_strains)
 
-        xs, ys = (self.units_map[:self.height, :self.width] != INT32_MAX).nonzero()
+        xs, ys = (self.units_map != INT32_MAX).nonzero()
         unit_id = self.units_map[xs, ys]
         xs, ys, unit_id = np.array(xs), np.array(ys), np.array(unit_id)
         lux_units = {**lux_units['player_0'], **lux_units['player_1']}
@@ -259,7 +269,7 @@ class Board(NamedTuple):
         for x, y, uid in zip(xs, ys, unit_id):
             lux_board.units_map.setdefault(f'({x}, {y})', []).append(lux_units[f"unit_{int(uid)}"])
 
-        xs, ys = (self.factory_map[:self.height, :self.width] != INT32_MAX).nonzero()
+        xs, ys = (self.factory_map != INT32_MAX).nonzero()
         factory_id = self.factory_map[xs, ys]
         xs, ys, factory_id = np.array(xs), np.array(ys), np.array(factory_id)
         lux_factories = {**lux_factories['player_0'], **lux_factories['player_1']}
@@ -268,22 +278,10 @@ class Board(NamedTuple):
             for x, y, fid in zip(xs, ys, factory_id)
         }
 
-        lux_board.factory_occupancy_map = np.array(self.factory_occupancy_map[:self.height, :self.width])
+        lux_board.factory_occupancy_map = np.array(self.factory_occupancy_map)
         lux_board.factory_occupancy_map[lux_board.factory_occupancy_map == INT32_MAX] = -1
         lux_board.valid_spawns_mask = np.array(self.valid_spawns_mask)
         return lux_board
-
-    @property
-    def rubble(self) -> Array:
-        return self.map.rubble
-
-    @property
-    def ice(self) -> Array:
-        return self.map.ice
-
-    @property
-    def ore(self) -> Array:
-        return self.map.ore
 
     def __eq__(self, __o: "Board") -> bool:
         if not isinstance(__o, Board):
