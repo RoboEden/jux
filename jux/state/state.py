@@ -1,3 +1,4 @@
+import functools
 from typing import Dict, List, NamedTuple, Tuple, Union
 
 import chex
@@ -15,7 +16,7 @@ from jux.factory import Factory, LuxFactory
 from jux.map import Board
 from jux.map.position import Direction, Position, direct2delta_xy
 from jux.team import FactionTypes, LuxTeam, Team
-from jux.unit import LuxUnit, Unit, UnitCargo, UnitType
+from jux.unit import ActionQueue, LuxUnit, Unit, UnitCargo, UnitType
 from jux.unit_cargo import ResourceType
 from jux.utils import INT32_MAX, imax
 
@@ -653,7 +654,7 @@ class State(NamedTuple):
         failed_players = failed_players | failed_factory
 
         # check units
-        action_mask = jnp.arange(self.UNIT_ACTION_QUEUE_SIZE)
+        action_mask = jnp.arange(self.UNIT_ACTION_QUEUE_SIZE, dtype=ActionQueue._field_types['count'])
         action_mask = jnp.repeat(
             action_mask[None, :],
             2 * self.MAX_N_UNITS,
@@ -675,7 +676,8 @@ class State(NamedTuple):
         action_queue_power_cost = jnp.array([
             self.env_cfg.ROBOTS[0].ACTION_QUEUE_POWER_COST,
             self.env_cfg.ROBOTS[1].ACTION_QUEUE_POWER_COST,
-        ])
+        ],
+                                            dtype=Unit._field_types['power'])
         update_power_req = action_queue_power_cost[self.units.unit_type] * weather_cfg["power_loss_factor"]
         chex.assert_shape(update_power_req, (2, self.MAX_N_UNITS))
         update_queue = actions.unit_action_queue_update & unit_mask & (update_power_req <= self.units.power)
@@ -938,8 +940,8 @@ class State(NamedTuple):
 
         # 1. prepare some data
         # get the pos of 9 cells around the factory
-        occupy_delta = jnp.array([[0, -1], [0, 0], [0, 1],])[None] + \
-            jnp.array([[-1, 0], [0, 0], [1, 0]])[:, None]  # int[3, 3, 2]
+        occupy_delta = jnp.array([[0, -1], [0, 0], [0, 1],], dtype=Position.dtype())[None] + \
+            jnp.array([[-1, 0], [0, 0], [1, 0]], dtype=Position.dtype())[:, None]  # int[3, 3, 2]
         occupy_delta = occupy_delta.reshape((-1, 2))  # int[9, 2]
         occupy_pos = Position(self.factories.pos.pos[..., None, :] + occupy_delta)  # int[2, F, 9, 2]
         chex.assert_shape(occupy_pos, (2, self.MAX_N_FACTORIES, 9, 2))
@@ -1068,7 +1070,7 @@ class State(NamedTuple):
         new_self = self._replace(
             units=units,
             board=self.board._replace(
-                map=self.board.map._replace(rubble=new_rubble, ),
+                map=self.board.map._replace(rubble=new_rubble),
                 lichen=new_lichen,
             ),
         )
@@ -1176,7 +1178,7 @@ class State(NamedTuple):
     def _validate_movement_actions(self, actions: UnitAction,
                                    weather_cfg: Dict[str, Union[int, float]]) -> Tuple[Array, Array]:
         unit_mask = self.unit_mask
-        player_id = jnp.array([0, 1])[..., None]
+        player_id = jnp.array([0, 1])[..., None].astype(Team._field_types['team_id'])
 
         is_moving = ((actions.action_type == UnitActionType.MOVE) & (actions.direction != Direction.CENTER)) & unit_mask
 
@@ -1266,9 +1268,7 @@ class State(NamedTuple):
             (heavy & moving & (moving_heavy_cnt > 1)),
         ]
         # or them together
-        dead = cases[0]
-        for case in cases[1:]:
-            dead = dead | case
+        dead = functools.reduce(jnp.logical_or, cases)
 
         self = self._replace(units=units)
         self, live_idx = self.destroy_unit(dead)
@@ -1309,7 +1309,7 @@ class State(NamedTuple):
         # remove dead units, put them into the end of the array
         is_alive = ~dead & unit_mask
         unit_idx = jnp.where(is_alive, self.unit_idx, imax(self.unit_idx.dtype))
-        live_idx = jnp.argsort(unit_idx)
+        live_idx = jnp.argsort(unit_idx).astype(self.units.unit_id.dtype)
 
         empty_unit = jax.tree_map(
             lambda x: jnp.array(x)[None, None],
@@ -1374,7 +1374,7 @@ class State(NamedTuple):
         # remove dead factories, put them into the end of the array
         is_alive = ~dead & factory_mask
         factory_idx = jnp.where(is_alive, self.factory_idx, imax(self.factory_idx.dtype))
-        live_idx = jnp.argsort(factory_idx)
+        live_idx = jnp.argsort(factory_idx).astype(self.factories.unit_id.dtype)
 
         empty_factory = jax.tree_map(
             lambda x: jnp.array(x)[None, None],
@@ -1417,7 +1417,7 @@ class State(NamedTuple):
 
         H, W = self.board.lichen_strains.shape
 
-        color = water_info['color']  # int[2, F]
+        color = water_info['color']  # int[H, W, 2]
         water_cost = water_info['water_cost']  # int[2, F]
         valid = water_info['valid']  # bool[2, F]
 
@@ -1425,19 +1425,20 @@ class State(NamedTuple):
         new_stock = self.factories.cargo.stock.at[..., ResourceType.water].add(-water_cost)
 
         # lichen growth
+        factory_color = color.at[self.factories.pos.x, self.factories.pos.y] \
+                             .get(mode='fill', fill_value=imax(color.dtype))  # int[2, F, 2]
         delta_lichen = jnp.zeros((H, W), dtype=Board._field_types['lichen'])  # int[H, W]
-        factory_color = color.at[:, self.factories.pos.x, self.factories.pos.y] \
-                             .get(mode='fill', fill_value=imax(color.dtype))  # int[2, 2, F]
-        delta_lichen = delta_lichen.at[factory_color[0], factory_color[1]].add(valid, mode='drop')
-        delta_lichen = delta_lichen.at[color[0], color[1]].get(mode='fill', fill_value=0)
+        delta_lichen = delta_lichen.at[factory_color[..., 0], factory_color[..., 1]].add(valid * 2, mode='drop')
+        delta_lichen = delta_lichen.at[color[..., 0], color[..., 1]].get(mode='fill', fill_value=0)
         delta_lichen = jnp.where(self.board.factory_occupancy_map == imax(self.board.factory_occupancy_map.dtype),
                                  delta_lichen, 0)
-        new_lichen = self.board.lichen + delta_lichen * 2
+        new_lichen = self.board.lichen + delta_lichen
 
         # lichen strain
         lichen_strains = jnp.zeros((H, W), dtype=Board._field_types['lichen_strains'])  # int[H, W]
-        lichen_strains = lichen_strains.at[factory_color[0], factory_color[1]].set(self.factories.unit_id, mode='drop')
-        lichen_strains = lichen_strains.at[color[0], color[1]].get(mode='fill', fill_value=0)
+        lichen_strains = lichen_strains.at[factory_color[..., 0], factory_color[..., 1]]\
+                                       .set(self.factories.unit_id, mode='drop')
+        lichen_strains = lichen_strains.at[color[..., 0], color[..., 1]].get(mode='fill', fill_value=0)
         new_lichen_strains = jnp.where(delta_lichen > 0, lichen_strains, self.board.lichen_strains)
 
         # update self
@@ -1497,14 +1498,21 @@ class State(NamedTuple):
             (strains_and_factory == neighbor_color) & (strains_and_factory != imax(strains_and_factory.dtype))
         )  # bool[4, H, W]
 
-        color = jux.map_generator.flood._flood_fill(jnp.where(connect_cond[:, None], neighbor_ij, ij))  # int[2, H, W]
-        factory_color = color.at[:, self.factories.pos.x,self.factories.pos.y] \
-                             .get(mode='fill', fill_value=imax(color.dtype))  # int[2, 2, F]
+        color = jux.map_generator.flood._flood_fill(  # int[H, W, 2]
+            jnp.concatenate(  # int[H, W, 5, 2]
+                [
+                    jnp.where(connect_cond[:, None], neighbor_ij, ij).transpose(2, 3, 0, 1),  # int[H, W, 4, 2]
+                    ij[None].transpose(2, 3, 0, 1),  # int[H, W, 1, 2]
+                ],
+                axis=-2,
+            ))
+        factory_color = color.at[self.factories.pos.x,self.factories.pos.y] \
+                             .get(mode='fill', fill_value=imax(color.dtype))  # int[2, F, 2]
         connected_lichen = jnp.full((H, W), fill_value=imax(Factory.id_dtype()))  # int[H, W]
-        connected_lichen = connected_lichen.at[factory_color[0], factory_color[1]] \
+        connected_lichen = connected_lichen.at[factory_color[..., 0], factory_color[..., 1]] \
                                            .set(self.factories.unit_id, mode='drop')
-        connected_lichen = connected_lichen.at[color[0], color[1]].get(mode='fill',
-                                                                       fill_value=imax(connected_lichen.dtype))
+        connected_lichen = connected_lichen.at[color[..., 0], color[..., 1]]\
+                                           .get(mode='fill', fill_value=imax(connected_lichen.dtype))
 
         # 2. handle cells to expand to.
         # 2.1 cells that are allowed to expand to, only if
@@ -1552,11 +1560,10 @@ class State(NamedTuple):
         strain_id = jnp.minimum(connected_lichen, strain_id_if_expand)  # int[H, W]
         factory_idx = self.factory_id2idx[strain_id]  # int[2, H, W]
         color = self.factories.pos.pos[factory_idx[..., 0], factory_idx[..., 1]]  # int[H, W, 2]
-        color = color.transpose((2, 0, 1))  # int[2, H, W]
-        color = jnp.where(strain_id == imax(strain_id.dtype), ij, color)
+        color = jnp.where((strain_id == imax(strain_id.dtype))[..., None], ij.transpose(1, 2, 0), color)
 
         # 4. check validity.
-        cmp_cnt = jux.map_generator.flood.component_sum(1, color)  # int[H, W]
+        cmp_cnt = jux.map_generator.flood.component_sum(UnitCargo.dtype()(1), color)  # int[H, W]
 
         # -9 for the factory occupied cells
         grow_lichen_size = cmp_cnt[self.factories.pos.x, self.factories.pos.y] - 9  # int[2, F]
