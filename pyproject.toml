@@ -50,6 +50,8 @@
         "bump2version",
         "rich",
         "pandas",
+        "ipywidgets>=7.0,<8.0",
+        "notebook",
     ]
 
 [tool.setuptools.dynamic]
