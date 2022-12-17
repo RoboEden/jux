@@ -3,6 +3,7 @@ from typing import NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
+from jax import Array
 from luxai2022.map.position import Position as LuxPosition
 
 from jux.utils import INT8_MAX, INT32_MAX
@@ -18,6 +19,14 @@ class Position(NamedTuple):
     @property
     def y(self) -> int:
         return self.pos[..., 1]
+
+    @staticmethod
+    def dtype() -> jnp.dtype:
+        return Position._field_types['pos']
+
+    @classmethod
+    def new(cls, pos: Array):
+        return cls(pos.astype(Position._field_types['pos']))
 
     @classmethod
     def from_lux(cls, lux_pos: LuxPosition) -> "Position":
@@ -55,4 +64,4 @@ direct2delta_xy = jnp.array(
         [0, 1],  # down
         [-1, 0],  # left
     ],
-    dtype=jnp.int8)
+    dtype=Position.dtype())

@@ -8,7 +8,7 @@ from luxai2022.team import FactionTypes as LuxFactionTypes
 from luxai2022.team import Team as LuxTeam
 
 from jux.config import JuxBufferConfig
-from jux.utils import INT32_MAX
+from jux.utils import INT32_MAX, imax
 
 
 class FactionTypes(IntEnum):
@@ -55,47 +55,66 @@ FactionTypes.FirstMars.alt_color = "red"
 
 
 class Team(NamedTuple):
+    team_id: jnp.int8
     faction: FactionTypes
-    team_id: int
-    # agent: str # weather we need it?
-    init_water: int
-    init_metal: int
-    factories_to_place: int
+    init_water: jnp.int32
+    init_metal: jnp.int32
+    factories_to_place: jnp.int32
 
-    # TODO: remove factory_strains and n_factory, because they are redundant
-    # with State.factories.unit_id and State.n_factories
-    factory_strains: Array  # int[MAX_N_FACTORIES], factory_id belonging to this team
-    n_factory: int  # usually MAX_FACTORIES or MAX_FACTORIES + 1
+    # This is not duplicated with State.factories.unit_id and State.n_factories,
+    # because factory may be destroyed, but destroyed factory id still be
+    factory_strains: jnp.int8  # int[MAX_N_FACTORIES], factory_id belonging to this team
+    n_factory: jnp.int8  # usually MAX_FACTORIES or MAX_FACTORIES + 1
 
     @classmethod
-    def new(cls, team_id: int, faction: Union[FactionTypes, int], buf_cfg: JuxBufferConfig) -> "Team":
+    def new(
+        cls,
+        team_id: int,
+        faction: Union[FactionTypes, int] = 0,
+        init_water: int = 0,
+        init_metal: int = 0,
+        factories_to_place: int = 0,
+        factory_strains: Array = None,
+        n_factory: int = 0,
+        *,
+        buf_cfg: JuxBufferConfig = None,
+    ) -> "Team":
+        if buf_cfg is None and factory_strains is None:
+            raise ValueError("Either buf_cfg or factory_strains must be provided.")
+        if factory_strains is None:
+            factory_strains = jnp.full(buf_cfg.MAX_N_FACTORIES, fill_value=imax(Team._field_types['factory_strains']))
         return cls(
-            faction=jnp.int32(faction),
-            team_id=jnp.int32(team_id),
-            init_water=jnp.int32(0),
-            init_metal=jnp.int32(0),
-            factories_to_place=jnp.int32(0),
-            factory_strains=jnp.full(buf_cfg.MAX_N_FACTORIES, fill_value=INT32_MAX),
-            n_factory=jnp.int32(0),
+            team_id=Team._field_types['team_id'](team_id),
+            faction=jnp.int8(faction),
+            init_water=Team._field_types['init_water'](init_water),
+            init_metal=Team._field_types['init_metal'](init_metal),
+            factories_to_place=Team._field_types['factories_to_place'](factories_to_place),
+            factory_strains=Team._field_types['factory_strains'](factory_strains),
+            n_factory=Team._field_types['n_factory'](n_factory),
         )
 
     @classmethod
     def from_lux(cls, lux_team: LuxTeam, buf_cfg: JuxBufferConfig) -> "Team":
-        factory_strains = jnp.full(buf_cfg.MAX_N_FACTORIES, fill_value=INT32_MAX)
+        strains_dtype = Team._field_types['n_factory']
+        factory_strains = jnp.full(buf_cfg.MAX_N_FACTORIES, fill_value=imax(strains_dtype))
 
         n_factory = len(lux_team.factory_strains)
-        factory_strains = factory_strains.at[:n_factory].set(jnp.array(lux_team.factory_strains, dtype=jnp.int32))
-        return cls(
-            faction=jnp.int32(FactionTypes.from_lux(lux_team.faction)),
-            team_id=jnp.int32(lux_team.team_id),
-            init_water=jnp.int32(lux_team.init_water),
-            init_metal=jnp.int32(lux_team.init_metal),
-            factories_to_place=jnp.int32(lux_team.factories_to_place),
+        factory_strains = factory_strains.at[:n_factory].set(jnp.array(lux_team.factory_strains, dtype=strains_dtype))
+
+        return cls.new(
+            team_id=lux_team.team_id,
+            faction=FactionTypes.from_lux(lux_team.faction),
+            init_water=lux_team.init_water,
+            init_metal=lux_team.init_metal,
+            factories_to_place=lux_team.factories_to_place,
             factory_strains=factory_strains,
-            n_factory=jnp.int32(n_factory),
+            n_factory=n_factory,
         )
 
-    def to_lux(self, place_first: bool) -> LuxTeam:
+    def to_lux(
+        self,
+        place_first: bool,
+    ) -> LuxTeam:
         lux_team = LuxTeam(
             team_id=int(self.team_id),
             agent=f'player_{int(self.team_id)}',
@@ -112,6 +131,4 @@ class Team(NamedTuple):
         if not isinstance(__o, Team):
             return False
         return ((self.faction == __o.faction) & (self.team_id == __o.team_id) & (self.init_water == __o.init_water)
-                & (self.init_metal == __o.init_metal) & (self.factories_to_place == __o.factories_to_place)
-                & (self.n_factory == __o.n_factory)
-                & jnp.array_equal(self.factory_strains, __o.factory_strains))
+                & (self.init_metal == __o.init_metal) & (self.factories_to_place == __o.factories_to_place))

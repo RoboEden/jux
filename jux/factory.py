@@ -8,15 +8,14 @@ from luxai2022.team import Team as LuxTeam
 from jux.config import EnvConfig
 from jux.map.position import Position, direct2delta_xy
 from jux.unit import ResourceType, Unit, UnitCargo
-from jux.utils import INT32_MAX
+from jux.utils import INT32_MAX, imax
 
 
 class Factory(NamedTuple):
-    team_id: int = jnp.int32(INT32_MAX)
-    # team # no need team object, team_id is enough
-    unit_id: int = jnp.int32(INT32_MAX)
+    team_id: jnp.int8 = imax(jnp.int8)
+    unit_id: jnp.int8 = imax(jnp.int8)
     pos: Position = Position()  # int16[2]
-    power: int = jnp.int32(0)
+    power: jnp.int32 = jnp.int32(0)
     cargo: UnitCargo = UnitCargo()  # int[4]
 
     @property
@@ -31,10 +30,23 @@ class Factory(NamedTuple):
         occupy = Position(occupy)
         return occupy
 
-    # action_queue # Do we need action queue for factories?
+    @staticmethod
+    def id_dtype():
+        return Factory._field_types['unit_id']
+
     @classmethod
     def empty(cls):
         return cls()
+
+    @classmethod
+    def new(cls, team_id: int, unit_id: int, pos: Position, power: int, cargo: UnitCargo):
+        return cls(
+            team_id=Factory._field_types['team_id'](team_id),
+            unit_id=Factory._field_types['unit_id'](unit_id),
+            pos=pos,
+            power=Factory._field_types['power'](power),
+            cargo=UnitCargo.from_lux(cargo),
+        )
 
     def add_resource(self, resource: ResourceType, transfer_amount: int) -> Tuple['Factory', int]:
         # If resource != ResourceType.power, call UnitCargo.add_resource.
@@ -88,11 +100,11 @@ class Factory(NamedTuple):
 
     @classmethod
     def from_lux(cls, lux_factory: LuxFactory) -> "Factory":
-        return cls(
-            team_id=jnp.int32(lux_factory.team_id),
-            unit_id=jnp.int32(lux_factory.unit_id[len('factory_'):]),
+        return cls.new(
+            team_id=lux_factory.team_id,
+            unit_id=lux_factory.unit_id[len('factory_'):],
             pos=Position.from_lux(lux_factory.pos),
-            power=jnp.int32(lux_factory.power),
+            power=lux_factory.power,
             cargo=UnitCargo.from_lux(lux_factory.cargo),
         )
 

@@ -17,7 +17,7 @@ import jux.tree_util
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.map.position import Direction, Position
 from jux.team import FactionTypes
-from jux.unit_cargo import ResourceType
+from jux.unit_cargo import ResourceType, UnitCargo
 from jux.utils import INT8_MAX, INT32_MAX
 
 try:
@@ -540,14 +540,14 @@ def bid_action_from_lux(lux_bid_action: Dict[str, Dict[str, int]]) -> Tuple[Arra
             lux_bid_action['player_0']['bid'],
             lux_bid_action['player_1']['bid'],
         ],
-        dtype=jnp.int32,
+        dtype=UnitCargo.dtype(),
     )
     faction = jnp.array(
         [
             FactionTypes[lux_bid_action['player_0']['faction']],
             FactionTypes[lux_bid_action['player_1']['faction']],
         ],
-        dtype=jnp.int32,
+        dtype=jnp.int8,
     )
     return bid, faction
 
@@ -616,14 +616,20 @@ def factory_placement_action_from_lux(lux_act: Dict[str, Dict[str, Any]]) -> Tup
         ],
         dtype=Position._field_types["pos"],
     )
-    water = jnp.array([
-        lux_act['player_0']['water'] if lux_act['player_0'] else 0,
-        lux_act['player_1']['water'] if lux_act['player_1'] else 0,
-    ])
-    metal = jnp.array([
-        lux_act['player_0']['metal'] if lux_act['player_0'] else 0,
-        lux_act['player_1']['metal'] if lux_act['player_1'] else 0,
-    ])
+    water = jnp.array(
+        [
+            lux_act['player_0']['water'] if lux_act['player_0'] else 0,
+            lux_act['player_1']['water'] if lux_act['player_1'] else 0,
+        ],
+        dtype=UnitCargo.dtype(),
+    )
+    metal = jnp.array(
+        [
+            lux_act['player_0']['metal'] if lux_act['player_0'] else 0,
+            lux_act['player_1']['metal'] if lux_act['player_1'] else 0,
+        ],
+        dtype=UnitCargo.dtype(),
+    )
     return spawn, water, metal
 
 

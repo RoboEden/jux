@@ -33,10 +33,10 @@ class MapType(IntEnum):
 
 
 class GameMap(NamedTuple):
-    rubble: Array  # int[height, width]
-    ice: Array  # bool[height, width]
-    ore: Array  # bool[height, width]
-    symmetry: SymmetryType
+    rubble: jnp.int8  # int8[height, width]
+    ice: jnp.bool_  # bool[height, width]
+    ore: jnp.bool_  # bool[height, width]
+    symmetry: SymmetryType  # jnp.int8
 
     @property
     def width(self) -> int:
@@ -47,11 +47,20 @@ class GameMap(NamedTuple):
         return self.rubble.shape[0]
 
     @staticmethod
+    def new(rubble: Array, ice: Array, ore: Array, symmetry: SymmetryType) -> "GameMap":
+        return GameMap(
+            GameMap._field_types['rubble'](rubble),
+            GameMap._field_types['ice'](ice),
+            GameMap._field_types['ore'](ore),
+            jnp.int8(symmetry),
+        )
+
+    @staticmethod
     def random_map(seed: jnp.int32 = None,
                    map_type: Optional[MapType] = None,
                    symmetry: Optional[SymmetryType] = None,
                    width: jnp.int32 = None,
-                   height: jnp.int32 = None):
+                   height: jnp.int32 = None) -> "GameMap":
         noise = SymmetryNoise(seed=seed, symmetry=symmetry, octaves=3)
         map_rand = lax.switch(map_type, [
             partial(cave, width, height),
@@ -59,7 +68,12 @@ class GameMap(NamedTuple):
             partial(island, width, height),
             partial(mountain, width, height),
         ], symmetry, noise)
-        return map_rand
+        return GameMap.new(
+            map_rand.rubble,
+            map_rand.ice,
+            map_rand.ore,
+            map_rand.symmetry,
+        )
 
     @classmethod
     def from_lux(cls: Type['GameMap'], lux_map: LuxGameMap) -> "GameMap":
@@ -67,7 +81,7 @@ class GameMap(NamedTuple):
         ice = jnp.array(lux_map.ice != 0)
         ore = jnp.array(lux_map.ore != 0)
 
-        return cls(
+        return cls.new(
             rubble,
             ice,
             ore,

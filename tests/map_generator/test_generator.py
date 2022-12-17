@@ -26,8 +26,8 @@ class TestGameMap(chex.TestCase):
         lux_game_map = LuxGameMap.random_map(
             map_type=map_type,
             symmetry=symmetry,
-            width=buf_cfg.MAX_MAP_SIZE,
-            height=buf_cfg.MAX_MAP_SIZE,
+            width=buf_cfg.MAP_SIZE,
+            height=buf_cfg.MAP_SIZE,
         )
         game_map = GameMap.from_lux(lux_game_map)
 

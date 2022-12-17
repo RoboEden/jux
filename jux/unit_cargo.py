@@ -15,7 +15,7 @@ class ResourceType(IntEnum):
 
 
 class UnitCargo(NamedTuple):
-    stock: Array = jnp.zeros(4, jnp.int32)  # int[4]
+    stock: jnp.int32 = jnp.zeros(4, jnp.int32)  # int[4]
 
     @property
     def ice(self):
@@ -33,9 +33,17 @@ class UnitCargo(NamedTuple):
     def metal(self):
         return self.stock[..., ResourceType.metal]
 
+    @staticmethod
+    def dtype():
+        return UnitCargo._field_types['stock']
+
+    @classmethod
+    def new(cls, ice: int, ore: int, water: int, metal: int):
+        return cls(stock=jnp.array([ice, ore, water, metal], dtype=UnitCargo._field_types['stock']))
+
     @classmethod
     def from_lux(cls, lux_cargo: LuxUnitCargo) -> "UnitCargo":
-        return UnitCargo(jnp.array([lux_cargo.ice, lux_cargo.ore, lux_cargo.water, lux_cargo.metal], dtype=jnp.int32))
+        return UnitCargo.new(lux_cargo.ice, lux_cargo.ore, lux_cargo.water, lux_cargo.metal)
 
     def to_lux(self) -> LuxUnitCargo:
         return LuxUnitCargo(int(self.ice), int(self.ore), int(self.water), int(self.metal))

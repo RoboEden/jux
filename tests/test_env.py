@@ -2,6 +2,7 @@ import chex
 import jax
 import numpy as np
 from luxai2022 import LuxAI2022
+from rich import print
 
 import jux.actions
 import jux.utils
@@ -116,11 +117,7 @@ class TestJuxEnv:
                         del jux_obs_0['board']['valid_spawns_mask']
                         del lux_obs_0['board']['valid_spawns_mask']
 
-                    compare_obs = jax.tree_map(
-                        np.array_equal,
-                        jux_obs_0,
-                        lux_obs_0,
-                    )
+                    compare_obs = jax.tree_map(np.array_equal, jux_obs_0, lux_obs_0)
                     assert all(jax.tree_util.tree_leaves(compare_obs))
 
                 assert jux_dones[0] == lux_dones['player_0']

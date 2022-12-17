@@ -11,72 +11,58 @@ from luxai2022.map.board import Board as LuxBoard
 from jux.config import EnvConfig, JuxBufferConfig, LuxEnvConfig
 from jux.map.position import Position
 from jux.map_generator.generator import GameMap, MapType, SymmetryType
-from jux.utils import INT8_MAX, INT32_MAX
+from jux.utils import INT32_MAX, imax
 
 radius = 6
 delta_xy = jnp.mgrid[-radius:radius + 1, -radius:radius + 1]  # int[2, 13, 13]
 delta_xy = jnp.array(jnp.nonzero(jnp.abs(delta_xy[0]) + jnp.abs(delta_xy[1]) <= radius)).T  # int[85, 2]
 delta_xy = delta_xy - jnp.array([radius, radius])
+delta_xy = delta_xy.astype(Position.dtype())
+
+Unit_id_dtype = jnp.int16
+Factory_id_dtype = jnp.int8
 
 
 class Board(NamedTuple):
-    '''
-    Map-related Arrays are stored in shape (JuxBufferConfig.MAX_MAP_SIZE, JuxBufferConfig.MAX_MAP_SIZE).
-    However, only the first height * width elements are valid.
-
-    ```python
-    from jux.config import JuxBufferConfig, EnvConfig
-
-    env_cfg = EnvConfig()
-    buffer_cfg = JuxBufferConfig()
-
-    MAX_MAP_SIZE = buffer_cfg.MAX_MAP_SIZE
-    assert lichen.shape == (MAX_MAP_SIZE, MAX_MAP_SIZE)
-
-    # the valid part
-    MAP_SIZE = env_cfg.MAP_SIZE
-    lichen[:MAP_SIZE, :MAP_SIZE]
-    ```
-    '''
     seed: int
-    factories_per_team: int
+    factories_per_team: jnp.int8
 
     map: GameMap
 
-    lichen: Array  # int[height, width]
+    lichen: jnp.int32  # int[height, width]
 
-    lichen_strains: Array  # int[height, width]
+    lichen_strains: Factory_id_dtype  # int8[height, width]
     '''
     ownership of lichen by factory id, a simple mask.
-    INT32_MAX = no ownership.
-    type: int[height, width]
+    INT8_MAX = no ownership.
+    type: int8[height, width]
     '''
 
-    units_map: Array  # int[height, width]
+    units_map: Unit_id_dtype  # int16[height, width]
     '''
     unit_id (or may be unit_idx) in the cell.
-    INT32_MAX = no unit.
-    type: int[height, width]
+    INT16_MAX = no unit.
+    type: int16[height, width]
     '''
 
-    factory_map: Array  # int[height, width]
+    factory_map: Factory_id_dtype  # int8[height, width]
     '''
     factory_id (or may be factory_idx) in the cell.
-    INT32_MAX = no factory.
-    type: int[height, width]
+    INT8_MAX = no factory.
+    type: int8[height, width]
     '''
 
-    factory_occupancy_map: Array  # int[height, width]
+    factory_occupancy_map: Factory_id_dtype  # int8[height, width]
     '''
     factory_id (or may be factory_idx) occupying current cell. Note: each factory occupies 3x3 cells.
-    INT32_MAX = no factory.
-    type: int[height, width]
+    INT8_MAX = no factory.
+    type: int8[height, width]
     '''
 
-    factory_pos: Array  # int[2 * MAX_N_FACTORIES, 2]
+    factory_pos: Position.dtype()  # int8[2 * MAX_N_FACTORIES, 2]
     '''
     cached factory positions, used for generate valid_spawns_mask. Only part of the array is valid.
-    Non valid part is filled with INT32_MAX.
+    Non valid part is filled with INT8_MAX.
     '''
 
     @property
@@ -101,7 +87,6 @@ class Board(NamedTuple):
 
     @property
     def valid_spawns_mask(self) -> Array:  # bool[height, width]
-        # valid_spawns_mask = np.ones((self.height, self.width), dtype=jnp.bool_)  # bool[height, width]
         valid_spawns_mask = (~self.map.ice & ~self.map.ore)  # bool[height, width]
         valid_spawns_mask = valid_spawns_mask & jnp.roll(valid_spawns_mask, 1, axis=0)
         valid_spawns_mask = valid_spawns_mask & jnp.roll(valid_spawns_mask, -1, axis=0)
@@ -118,7 +103,7 @@ class Board(NamedTuple):
         return valid_spawns_mask
 
     @classmethod
-    def new(cls, seed: int, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig):
+    def new(cls, seed: int, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig, factories_per_team=None):
         height = buf_cfg.MAP_SIZE
         width = buf_cfg.MAP_SIZE
         key = jax.random.PRNGKey(seed)
@@ -140,25 +125,37 @@ class Board(NamedTuple):
             height=height,
         )
         key, subkey = jax.random.split(key)
-        factories_per_team = jax.random.randint(
-            key=subkey,
-            shape=(1, ),
-            minval=env_cfg.MIN_FACTORIES,
-            maxval=env_cfg.MAX_FACTORIES + 1,
-        )[0]
+        if factories_per_team is None:
+            factories_per_team = jax.random.randint(
+                key=subkey,
+                shape=(1, ),
+                minval=env_cfg.MIN_FACTORIES,
+                maxval=env_cfg.MAX_FACTORIES + 1,
+            )[0]
+        factories_per_team = Board._field_types['factories_per_team'](factories_per_team)
 
-        lichen = jnp.zeros(shape=(height, width), dtype=jnp.int32)
-        lichen_strains = jnp.full(shape=(height, width), fill_value=INT32_MAX)
-        units_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
+        lichen = jnp.zeros(shape=(height, width), dtype=Board._field_types['lichen'])
+        lichen_strains = jnp.full(
+            shape=(height, width),
+            fill_value=imax(Board._field_types['lichen_strains']),
+        )
+        units_map = jnp.full(
+            shape=(height, width),
+            fill_value=imax(Board._field_types['units_map']),
+        )
 
-        factory_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
-        factory_occupancy_map = jnp.full(shape=(height, width), fill_value=INT32_MAX)
+        factory_map = jnp.full(
+            shape=(height, width),
+            fill_value=imax(Board._field_types['factory_map']),
+        )
+        factory_occupancy_map = jnp.full(
+            shape=(height, width),
+            fill_value=imax(Board._field_types['factory_occupancy_map']),
+        )
 
-        pos_dtype = Position._field_types['pos']
         factory_pos = jnp.full(
             shape=(2, buf_cfg.MAX_N_FACTORIES, 2),
-            fill_value=jnp.iinfo(pos_dtype).max,
-            dtype=pos_dtype,
+            fill_value=imax(Position.dtype()),
         )
 
         return cls(
@@ -177,11 +174,10 @@ class Board(NamedTuple):
     def from_lux(cls: Type['Board'], lux_board: LuxBoard, buf_cfg: JuxBufferConfig) -> "Board":
         height, width = lux_board.height, lux_board.width
 
-        lichen = jnp.zeros(shape=(height, width), dtype=jnp.int32)
-        lichen = lichen.at[:height, :width].set(lux_board.lichen)
+        lichen = jnp.array(lux_board.lichen, dtype=Board._field_types['lichen'])
 
-        lichen_strains = jnp.array(lux_board.lichen_strains, dtype=jnp.int32)
-        lichen_strains = lichen_strains.at[lichen_strains == -1].set(INT32_MAX)
+        lichen_strains = jnp.array(lux_board.lichen_strains, dtype=Board._field_types['lichen_strains'])
+        lichen_strains = lichen_strains.at[lichen_strains == -1].set(imax(Board._field_types['lichen_strains']))
 
         # put factories id to map
         lux_board.factory_map: Dict[str, 'LuxFactory']
@@ -194,17 +190,20 @@ class Board(NamedTuple):
             xs.append(x)
             ys.append(y)
             factory_id.append(v)
-        factory_map = jnp.full((height, width), fill_value=INT32_MAX, dtype=jnp.int32)  # default value is INT32_MAX
-        factory_id = jnp.array(factory_id, dtype=jnp.int32)
+        factory_map = jnp.full((height, width),
+                               fill_value=imax(Board._field_types['factory_map']))  # default value is INT8_MAX
+        factory_id = jnp.array(factory_id, dtype=factory_map.dtype)
         factory_map = factory_map.at[xs, ys].set(factory_id)
 
-        factory_occupancy_map = jnp.array(lux_board.factory_occupancy_map, dtype=jnp.int32)
-        factory_occupancy_map = factory_occupancy_map.at[factory_occupancy_map == -1].set(INT32_MAX)
+        factory_occupancy_map = jnp.array(lux_board.factory_occupancy_map,
+                                          dtype=Board._field_types['factory_occupancy_map'])
+        factory_occupancy_map = factory_occupancy_map.at[factory_occupancy_map == -1].set(
+            imax(Board._field_types['factory_occupancy_map']))  # default value is INT8_MAX
 
-        pos_dtype = Position._field_types['pos']
+        pos_dtype = Position.dtype()
         factory_pos = jnp.full(
             shape=(buf_cfg.MAX_N_FACTORIES * 2, 2),
-            fill_value=jnp.iinfo(pos_dtype).max,
+            fill_value=imax(pos_dtype),
             dtype=pos_dtype,
         )
         n_factory = len(xs)
@@ -223,15 +222,16 @@ class Board(NamedTuple):
             xs.append(x)
             ys.append(y)
             unit_id.append(v)
-        units_map = jnp.full((height, width), fill_value=INT32_MAX, dtype=jnp.int32)  # default value is INT32_MAX
-        unit_id = jnp.array(unit_id, dtype=jnp.int32)
+        units_map = jnp.full((height, width),
+                             fill_value=imax(Board._field_types['units_map']))  # default value is INT16_MAX
+        unit_id = jnp.array(unit_id, dtype=units_map.dtype)
         units_map = units_map.at[xs, ys].set(unit_id)
 
         seed = lux_board.seed if lux_board.seed is not None else INT32_MAX
-
+        factories_per_team = Board._field_types['factories_per_team'](lux_board.factories_per_team)
         return cls(
             seed=seed,
-            factories_per_team=lux_board.factories_per_team,
+            factories_per_team=factories_per_team,
             map=GameMap.from_lux(lux_board.map),
             lichen=lichen,
             lichen_strains=lichen_strains,
@@ -253,15 +253,15 @@ class Board(NamedTuple):
         lux_board.env_cfg = lux_env_cfg
         lux_board.height = int(height)
         lux_board.width = int(width)
-        lux_board.seed = self.seed if self.seed != INT32_MAX else None
+        lux_board.seed = int(self.seed) if self.seed != INT32_MAX else None
         lux_board.factories_per_team = int(self.factories_per_team)
         lux_board.map = self.map.to_lux()
-        lux_board.lichen = np.array(self.lichen)
+        lux_board.lichen = np.array(self.lichen, dtype=np.int32)
 
-        lichen_strains = self.lichen_strains.at[self.lichen_strains == INT32_MAX].set(-1)
-        lux_board.lichen_strains = np.array(lichen_strains)
+        lichen_strains = self.lichen_strains.at[self.lichen_strains == imax(self.lichen_strains.dtype)].set(-1)
+        lux_board.lichen_strains = np.array(lichen_strains, dtype=np.int32)
 
-        xs, ys = (self.units_map != INT32_MAX).nonzero()
+        xs, ys = (self.units_map != imax(self.units_map.dtype)).nonzero()
         unit_id = self.units_map[xs, ys]
         xs, ys, unit_id = np.array(xs), np.array(ys), np.array(unit_id)
         lux_units = {**lux_units['player_0'], **lux_units['player_1']}
@@ -269,7 +269,7 @@ class Board(NamedTuple):
         for x, y, uid in zip(xs, ys, unit_id):
             lux_board.units_map.setdefault(f'({x}, {y})', []).append(lux_units[f"unit_{int(uid)}"])
 
-        xs, ys = (self.factory_map != INT32_MAX).nonzero()
+        xs, ys = (self.factory_map != imax(self.factory_map.dtype)).nonzero()
         factory_id = self.factory_map[xs, ys]
         xs, ys, factory_id = np.array(xs), np.array(ys), np.array(factory_id)
         lux_factories = {**lux_factories['player_0'], **lux_factories['player_1']}
@@ -278,8 +278,8 @@ class Board(NamedTuple):
             for x, y, fid in zip(xs, ys, factory_id)
         }
 
-        lux_board.factory_occupancy_map = np.array(self.factory_occupancy_map)
-        lux_board.factory_occupancy_map[lux_board.factory_occupancy_map == INT32_MAX] = -1
+        lux_board.factory_occupancy_map = np.array(self.factory_occupancy_map, dtype=np.int32)
+        lux_board.factory_occupancy_map[lux_board.factory_occupancy_map == imax(self.factory_occupancy_map.dtype)] = -1
         lux_board.valid_spawns_mask = np.array(self.valid_spawns_mask)
         return lux_board
 
@@ -296,17 +296,18 @@ class Board(NamedTuple):
                 & jnp.array_equal(self.valid_spawns_mask, __o.valid_spawns_mask))
 
     def update_units_map(self, units) -> 'Board':
-        units_map = jnp.full_like(self.units_map, fill_value=INT32_MAX)
+        units_map = jnp.full_like(self.units_map, fill_value=imax(self.units_map.dtype))
         pos = units.pos
         units_map = units_map.at[pos.x, pos.y].set(units.unit_id, mode='drop')
         return self._replace(units_map=units_map)
 
     def update_factories_map(self, factories) -> 'Board':
-        factory_map = jnp.full_like(self.factory_map, fill_value=INT32_MAX)
+        factory_map = jnp.full_like(self.factory_map, fill_value=imax(self.factory_map.dtype))
         pos = factories.pos
         factory_map = factory_map.at[pos.x, pos.y].set(factories.unit_id, mode='drop')
 
-        factory_occupancy_map = jnp.full_like(self.factory_occupancy_map, fill_value=INT32_MAX)
+        factory_occupancy_map = jnp.full_like(self.factory_occupancy_map,
+                                              fill_value=imax(self.factory_occupancy_map.dtype))
         occupancy = factories.occupancy
         factory_occupancy_map = factory_occupancy_map.at[(
             occupancy.x,

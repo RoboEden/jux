@@ -13,7 +13,7 @@ from jux.actions import ActionQueue, UnitAction
 from jux.config import EnvConfig, UnitConfig
 from jux.map.position import Position
 from jux.unit_cargo import ResourceType, UnitCargo
-from jux.utils import INT32_MAX
+from jux.utils import INT32_MAX, imax
 
 
 class UnitType(IntEnum):
@@ -41,13 +41,16 @@ class UnitType(IntEnum):
 class Unit(NamedTuple):
     unit_type: UnitType  # int8
     action_queue: ActionQueue  # ActionQueue[UNIT_ACTION_QUEUE_SIZE, 5]
-    team_id: jnp.int8 = jnp.int8(INT32_MAX)
-    # team # no need team object, team_id is enough
-    unit_id: jnp.int32 = jnp.int32(INT32_MAX)
+    team_id: jnp.int8 = imax(jnp.int8)
+    unit_id: jnp.int16 = imax(jnp.int16)
     pos: Position = Position()
 
     cargo: UnitCargo = UnitCargo()
     power: jnp.int32 = jnp.int32(0)
+
+    @staticmethod
+    def id_dtype():
+        return Unit._field_types['unit_id']
 
     def get_cfg(self, attr: str, unit_cfgs: Tuple[UnitConfig, UnitConfig]):
         attr_values = jnp.array([

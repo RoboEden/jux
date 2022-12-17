@@ -13,12 +13,18 @@ class TestTeam:
 
     def test_from_to_lux(self):
         buf_cfg = JuxBufferConfig()
-
         lux_team = LuxTeam(0, 'player_0', LuxFactionTypes.AlphaStrike)
         assert lux_team_eq(
             lux_team,
             Team.from_lux(lux_team, buf_cfg).to_lux(lux_team.place_first),
         )
 
-        jux_team = Team.new(0, FactionTypes.FirstMars, buf_cfg)
+        jux_team = Team.new(
+            team_id=0,
+            faction=FactionTypes.FirstMars,
+            init_water=5,
+            init_metal=4,
+            factories_to_place=3,
+            buf_cfg=buf_cfg,
+        )
         assert jux_team == Team.from_lux(jux_team.to_lux(lux_team.place_first), buf_cfg)
