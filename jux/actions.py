@@ -459,14 +459,11 @@ class JuxAction(NamedTuple):
         assert factory_action.dtype == torch.int8
 
         for i, attr in enumerate(UnitAction._fields):
-            assert (
-                unit_action_queue[i].dtype == getattr(torch, UnitAction._field_types[attr].dtype.name),
-                f"unit_action_queue.{attr}.dtype must be {getattr(torch, UnitAction._field_types[attr].dtype.name)}, but got {unit_action_queue[i].dtype}.",
-            )
-        assert (
-            unit_action_queue_count.dtype == getattr(torch, ActionQueue._field_types['count'].dtype.name),
-            f"unit_action_queue_count.dtype must be {getattr(torch, ActionQueue._field_types['count'].dtype.name)}, but got {unit_action_queue_count.dtype}.",
-        )
+            assert unit_action_queue[i].dtype == getattr(torch, UnitAction._field_types[attr].dtype.name), \
+                f"unit_action_queue.{attr}.dtype must be {getattr(torch, UnitAction._field_types[attr].dtype.name)}, but got {unit_action_queue[i].dtype}."
+
+        assert unit_action_queue_count.dtype == getattr(torch, ActionQueue._field_types['count'].dtype.name), \
+            f"unit_action_queue_count.dtype must be {getattr(torch, ActionQueue._field_types['count'].dtype.name)}, but got {unit_action_queue_count.dtype}."
         assert unit_action_queue_update.dtype == torch.uint8
 
         chex.assert_equal_shape(unit_action_queue)
