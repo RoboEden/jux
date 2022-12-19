@@ -132,25 +132,25 @@ class Board(NamedTuple):
                 minval=env_cfg.MIN_FACTORIES,
                 maxval=env_cfg.MAX_FACTORIES + 1,
             )[0]
-        factories_per_team = Board._field_types['factories_per_team'](factories_per_team)
+        factories_per_team = Board.__annotations__['factories_per_team'](factories_per_team)
 
-        lichen = jnp.zeros(shape=(height, width), dtype=Board._field_types['lichen'])
+        lichen = jnp.zeros(shape=(height, width), dtype=Board.__annotations__['lichen'])
         lichen_strains = jnp.full(
             shape=(height, width),
-            fill_value=imax(Board._field_types['lichen_strains']),
+            fill_value=imax(Board.__annotations__['lichen_strains']),
         )
         units_map = jnp.full(
             shape=(height, width),
-            fill_value=imax(Board._field_types['units_map']),
+            fill_value=imax(Board.__annotations__['units_map']),
         )
 
         factory_map = jnp.full(
             shape=(height, width),
-            fill_value=imax(Board._field_types['factory_map']),
+            fill_value=imax(Board.__annotations__['factory_map']),
         )
         factory_occupancy_map = jnp.full(
             shape=(height, width),
-            fill_value=imax(Board._field_types['factory_occupancy_map']),
+            fill_value=imax(Board.__annotations__['factory_occupancy_map']),
         )
 
         factory_pos = jnp.full(
@@ -174,10 +174,10 @@ class Board(NamedTuple):
     def from_lux(cls: Type['Board'], lux_board: LuxBoard, buf_cfg: JuxBufferConfig) -> "Board":
         height, width = lux_board.height, lux_board.width
 
-        lichen = jnp.array(lux_board.lichen, dtype=Board._field_types['lichen'])
+        lichen = jnp.array(lux_board.lichen, dtype=Board.__annotations__['lichen'])
 
-        lichen_strains = jnp.array(lux_board.lichen_strains, dtype=Board._field_types['lichen_strains'])
-        lichen_strains = lichen_strains.at[lichen_strains == -1].set(imax(Board._field_types['lichen_strains']))
+        lichen_strains = jnp.array(lux_board.lichen_strains, dtype=Board.__annotations__['lichen_strains'])
+        lichen_strains = lichen_strains.at[lichen_strains == -1].set(imax(Board.__annotations__['lichen_strains']))
 
         # put factories id to map
         lux_board.factory_map: Dict[str, 'LuxFactory']
@@ -191,14 +191,14 @@ class Board(NamedTuple):
             ys.append(y)
             factory_id.append(v)
         factory_map = jnp.full((height, width),
-                               fill_value=imax(Board._field_types['factory_map']))  # default value is INT8_MAX
+                               fill_value=imax(Board.__annotations__['factory_map']))  # default value is INT8_MAX
         factory_id = jnp.array(factory_id, dtype=factory_map.dtype)
         factory_map = factory_map.at[xs, ys].set(factory_id)
 
         factory_occupancy_map = jnp.array(lux_board.factory_occupancy_map,
-                                          dtype=Board._field_types['factory_occupancy_map'])
+                                          dtype=Board.__annotations__['factory_occupancy_map'])
         factory_occupancy_map = factory_occupancy_map.at[factory_occupancy_map == -1].set(
-            imax(Board._field_types['factory_occupancy_map']))  # default value is INT8_MAX
+            imax(Board.__annotations__['factory_occupancy_map']))  # default value is INT8_MAX
 
         pos_dtype = Position.dtype()
         factory_pos = jnp.full(
@@ -223,12 +223,12 @@ class Board(NamedTuple):
             ys.append(y)
             unit_id.append(v)
         units_map = jnp.full((height, width),
-                             fill_value=imax(Board._field_types['units_map']))  # default value is INT16_MAX
+                             fill_value=imax(Board.__annotations__['units_map']))  # default value is INT16_MAX
         unit_id = jnp.array(unit_id, dtype=units_map.dtype)
         units_map = units_map.at[xs, ys].set(unit_id)
 
         seed = lux_board.seed if lux_board.seed is not None else INT32_MAX
-        factories_per_team = Board._field_types['factories_per_team'](lux_board.factories_per_team)
+        factories_per_team = Board.__annotations__['factories_per_team'](lux_board.factories_per_team)
         return cls(
             seed=seed,
             factories_per_team=factories_per_team,

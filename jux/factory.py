@@ -32,7 +32,7 @@ class Factory(NamedTuple):
 
     @staticmethod
     def id_dtype():
-        return Factory._field_types['unit_id']
+        return Factory.__annotations__['unit_id']
 
     @classmethod
     def empty(cls):
@@ -41,10 +41,10 @@ class Factory(NamedTuple):
     @classmethod
     def new(cls, team_id: int, unit_id: int, pos: Position, power: int, cargo: UnitCargo):
         return cls(
-            team_id=Factory._field_types['team_id'](team_id),
-            unit_id=Factory._field_types['unit_id'](unit_id),
+            team_id=Factory.__annotations__['team_id'](team_id),
+            unit_id=Factory.__annotations__['unit_id'](unit_id),
             pos=pos,
-            power=Factory._field_types['power'](power),
+            power=Factory.__annotations__['power'](power),
             cargo=UnitCargo.from_lux(cargo),
         )
 

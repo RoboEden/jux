@@ -70,8 +70,8 @@ class UnitAction(NamedTuple):
     def new(
         cls,
         action_type: UnitActionType,
-        direction: Direction,
-        resource_type: ResourceType,
+        direction: Union[Direction, int],
+        resource_type: Union[ResourceType, int],
         amount: jnp.int16,
         repeat: jnp.int8,
     ) -> "UnitAction":
@@ -331,7 +331,7 @@ class JuxAction(NamedTuple):
             unit_action_queue=unit_action_queue,
             unit_action_queue_count=jnp.zeros(
                 (2, buf_cfg.MAX_N_UNITS),
-                dtype=ActionQueue._field_types['count'],
+                dtype=ActionQueue.__annotations__['count'],
             ),
             unit_action_queue_update=jnp.zeros((2, buf_cfg.MAX_N_UNITS), dtype=jnp.bool_),
         )
@@ -344,13 +344,13 @@ class JuxAction(NamedTuple):
         )
         batch_shape = (2, state.MAX_N_UNITS, state.env_cfg.UNIT_ACTION_QUEUE_SIZE)
         unit_action_queue = UnitAction(
-            action_type=np.empty(batch_shape, dtype=UnitAction._field_types['action_type'].dtype),
-            direction=np.empty(batch_shape, dtype=UnitAction._field_types['direction'].dtype),
-            resource_type=np.empty(batch_shape, dtype=UnitAction._field_types['resource_type'].dtype),
-            amount=np.empty(batch_shape, dtype=UnitAction._field_types['amount'].dtype),
-            repeat=np.empty(batch_shape, dtype=UnitAction._field_types['repeat'].dtype),
+            action_type=np.empty(batch_shape, dtype=UnitAction.__annotations__['action_type'].dtype),
+            direction=np.empty(batch_shape, dtype=UnitAction.__annotations__['direction'].dtype),
+            resource_type=np.empty(batch_shape, dtype=UnitAction.__annotations__['resource_type'].dtype),
+            amount=np.empty(batch_shape, dtype=UnitAction.__annotations__['amount'].dtype),
+            repeat=np.empty(batch_shape, dtype=UnitAction.__annotations__['repeat'].dtype),
         )
-        unit_action_queue_count = np.zeros((2, state.MAX_N_UNITS), dtype=ActionQueue._field_types['count'])
+        unit_action_queue_count = np.zeros((2, state.MAX_N_UNITS), dtype=ActionQueue.__annotations__['count'])
         unit_action_queue_update = np.zeros((2, state.MAX_N_UNITS), dtype=np.bool_)
 
         for player_id, player_actions in lux_action.items():
@@ -459,11 +459,11 @@ class JuxAction(NamedTuple):
         assert factory_action.dtype == torch.int8
 
         for i, attr in enumerate(UnitAction._fields):
-            assert unit_action_queue[i].dtype == getattr(torch, UnitAction._field_types[attr].dtype.name), \
-                f"unit_action_queue.{attr}.dtype must be {getattr(torch, UnitAction._field_types[attr].dtype.name)}, but got {unit_action_queue[i].dtype}."
+            assert unit_action_queue[i].dtype == getattr(torch, UnitAction.__annotations__[attr].dtype.name), \
+                f"unit_action_queue.{attr}.dtype must be {getattr(torch, UnitAction.__annotations__[attr].dtype.name)}, but got {unit_action_queue[i].dtype}."
 
-        assert unit_action_queue_count.dtype == getattr(torch, ActionQueue._field_types['count'].dtype.name), \
-            f"unit_action_queue_count.dtype must be {getattr(torch, ActionQueue._field_types['count'].dtype.name)}, but got {unit_action_queue_count.dtype}."
+        assert unit_action_queue_count.dtype == getattr(torch, ActionQueue.__annotations__['count'].dtype.name), \
+            f"unit_action_queue_count.dtype must be {getattr(torch, ActionQueue.__annotations__['count'].dtype.name)}, but got {unit_action_queue_count.dtype}."
         assert unit_action_queue_update.dtype == torch.uint8
 
         chex.assert_equal_shape(unit_action_queue)
@@ -510,7 +510,7 @@ class JuxAction(NamedTuple):
         return jax.tree_map(jux.torch.to_torch, self)
 
 
-def bid_action_from_lux(lux_bid_action: Dict[str, Dict[str, int]]) -> Tuple[Array, Array]:
+def bid_action_from_lux(lux_bid_action: Dict[str, Dict[str, Any]]) -> Tuple[Array, Array]:
     '''
     Convert a `LuxAI2022` bid action to a format that `JuxEnv.step_bid()` can receive.
 
@@ -611,7 +611,7 @@ def factory_placement_action_from_lux(lux_act: Dict[str, Dict[str, Any]]) -> Tup
             lux_act['player_0']['spawn'] if lux_act['player_0'] else [0, 0],
             lux_act['player_1']['spawn'] if lux_act['player_1'] else [0, 0],
         ],
-        dtype=Position._field_types["pos"],
+        dtype=Position.__annotations__["pos"],
     )
     water = jnp.array(
         [

@@ -50,7 +50,7 @@ class Unit(NamedTuple):
 
     @staticmethod
     def id_dtype():
-        return Unit._field_types['unit_id']
+        return Unit.__annotations__['unit_id']
 
     def get_cfg(self, attr: str, unit_cfgs: Tuple[UnitConfig, UnitConfig]):
         attr_values = jnp.array([
@@ -63,15 +63,15 @@ class Unit(NamedTuple):
     def new(team_id: int, unit_type: Union[UnitType, int], unit_id: int, env_cfg: EnvConfig):
         unit = Unit(
             unit_type=jnp.int8(unit_type),
-            team_id=Unit._field_types['team_id'](team_id),
-            unit_id=Unit._field_types['unit_id'](unit_id),
+            team_id=Unit.__annotations__['team_id'](team_id),
+            unit_id=Unit.__annotations__['unit_id'](unit_id),
             pos=Position(),
             cargo=UnitCargo(),
             action_queue=ActionQueue.empty(env_cfg.UNIT_ACTION_QUEUE_SIZE),
             power=None,
         )
         init_power = unit.get_cfg('INIT_POWER', env_cfg.ROBOTS)
-        return unit._replace(power=Unit._field_types['power'](init_power))
+        return unit._replace(power=Unit.__annotations__['power'](init_power))
 
     @classmethod
     def empty(cls, env_cfg: EnvConfig):
@@ -85,12 +85,12 @@ class Unit(NamedTuple):
         unit_id = int(lux_unit.unit_id[len('unit_'):])
         return Unit(
             unit_type=jnp.int8(UnitType.from_lux(lux_unit.unit_type)),
-            team_id=Unit._field_types['team_id'](lux_unit.team_id),
-            unit_id=Unit._field_types['unit_id'](unit_id),
+            team_id=Unit.__annotations__['team_id'](lux_unit.team_id),
+            unit_id=Unit.__annotations__['unit_id'](unit_id),
             pos=Position.from_lux(lux_unit.pos),
             cargo=UnitCargo.from_lux(lux_unit.cargo),
             action_queue=ActionQueue.from_lux(lux_unit.action_queue, env_cfg.UNIT_ACTION_QUEUE_SIZE),
-            power=Unit._field_types['power'](lux_unit.power),
+            power=Unit.__annotations__['power'](lux_unit.power),
         )
 
     def to_lux(self, lux_teams: Dict[str, LuxTeam], lux_env_cfg: LuxEnvConfig) -> LuxUnit:

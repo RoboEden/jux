@@ -49,9 +49,9 @@ class GameMap(NamedTuple):
     @staticmethod
     def new(rubble: Array, ice: Array, ore: Array, symmetry: SymmetryType) -> "GameMap":
         return GameMap(
-            GameMap._field_types['rubble'](rubble),
-            GameMap._field_types['ice'](ice),
-            GameMap._field_types['ore'](ore),
+            GameMap.__annotations__['rubble'](rubble),
+            GameMap.__annotations__['ice'](ice),
+            GameMap.__annotations__['ore'](ore),
             jnp.int8(symmetry),
         )
 

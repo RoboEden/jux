@@ -840,7 +840,7 @@ class State(NamedTuple):
 
         return valid
 
-    def _handle_transfer_actions(self, actions: UnitAction, valid: Array) -> Tuple['State', Array]:
+    def _handle_transfer_actions(self, actions: UnitAction, valid: Array) -> 'State':
         # pytype: disable=attribute-error
         # pytype: disable=unsupported-operands
 
@@ -924,7 +924,7 @@ class State(NamedTuple):
 
         return valid
 
-    def _handle_pickup_actions(self, actions: UnitAction, valid: Array) -> Tuple['State', Array]:
+    def _handle_pickup_actions(self, actions: UnitAction, valid: Array) -> 'State':
         # This action is difficult to vectorize, because pickup actions are not
         # independent from each other. Two robots may pick up from the same
         # factory. Assume there two robots, both pickup 10 power from the same
@@ -1033,7 +1033,7 @@ class State(NamedTuple):
         return valid
 
     def _handle_dig_actions(self: 'State', actions: UnitAction, weather_cfg: Dict[str, np.ndarray],
-                            valid: Array) -> Tuple['State', Array]:
+                            valid: Array) -> 'State':
         units = self.units
         power_cost = units.get_cfg("DIG_COST", self.env_cfg.ROBOTS) * weather_cfg["power_loss_factor"]
         x, y = self.units.pos.x, self.units.pos.y
@@ -1092,7 +1092,7 @@ class State(NamedTuple):
         actions: UnitAction,
         weather_cfg: Dict[str, Union[int, float]],
         valid: Array,
-    ) -> Tuple['State', UnitAction, Array]:
+    ) -> Tuple['State', Array]:
 
         self, live_idx = self.destroy_unit(dead=valid)
 
@@ -1121,7 +1121,7 @@ class State(NamedTuple):
         return valid
 
     def _handle_factory_build_actions(self: 'State', factory_actions: Array, weather_cfg: Dict[str, Union[int, float]],
-                                      valid: Array):
+                                      valid: Array) -> 'State':
 
         # 1. double check if build action is valid. Because robots may pickup resources from factory
         valid = valid & self._validate_factory_build_actions(factory_actions, weather_cfg)
@@ -1208,7 +1208,7 @@ class State(NamedTuple):
         return valid, power_cost
 
     def _handle_movement_actions(self, actions: UnitAction, weather_cfg: Dict[str, Union[int, float]],
-                                 movement_info: Dict[str, Array]) -> Tuple['State', UnitAction, Array]:
+                                 movement_info: Dict[str, Array]) -> Tuple['State', Array]:
         valid, power_cost = movement_info['valid'], movement_info['power_cost']
 
         # move to center is not considered as moving

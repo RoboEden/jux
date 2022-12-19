@@ -74,28 +74,30 @@ class Team(NamedTuple):
         init_water: int = 0,
         init_metal: int = 0,
         factories_to_place: int = 0,
-        factory_strains: Array = None,
+        factory_strains: Union[Array, None] = None,
         n_factory: int = 0,
         *,
-        buf_cfg: JuxBufferConfig = None,
+        buf_cfg: Union[JuxBufferConfig, None] = None,
     ) -> "Team":
-        if buf_cfg is None and factory_strains is None:
-            raise ValueError("Either buf_cfg or factory_strains must be provided.")
-        if factory_strains is None:
-            factory_strains = jnp.full(buf_cfg.MAX_N_FACTORIES, fill_value=imax(Team._field_types['factory_strains']))
+        if buf_cfg is None:
+            if factory_strains is None:
+                raise ValueError("Either buf_cfg or factory_strains must be provided.")
+        elif factory_strains is None:
+            factory_strains = jnp.full(buf_cfg.MAX_N_FACTORIES,
+                                       fill_value=imax(Team.__annotations__['factory_strains']))
         return cls(
-            team_id=Team._field_types['team_id'](team_id),
+            team_id=Team.__annotations__['team_id'](team_id),
             faction=jnp.int8(faction),
-            init_water=Team._field_types['init_water'](init_water),
-            init_metal=Team._field_types['init_metal'](init_metal),
-            factories_to_place=Team._field_types['factories_to_place'](factories_to_place),
-            factory_strains=Team._field_types['factory_strains'](factory_strains),
-            n_factory=Team._field_types['n_factory'](n_factory),
+            init_water=Team.__annotations__['init_water'](init_water),
+            init_metal=Team.__annotations__['init_metal'](init_metal),
+            factories_to_place=Team.__annotations__['factories_to_place'](factories_to_place),
+            factory_strains=Team.__annotations__['factory_strains'](factory_strains),
+            n_factory=Team.__annotations__['n_factory'](n_factory),
         )
 
     @classmethod
     def from_lux(cls, lux_team: LuxTeam, buf_cfg: JuxBufferConfig) -> "Team":
-        strains_dtype = Team._field_types['n_factory']
+        strains_dtype = Team.__annotations__['n_factory']
         factory_strains = jnp.full(buf_cfg.MAX_N_FACTORIES, fill_value=imax(strains_dtype))
 
         n_factory = len(lux_team.factory_strains)

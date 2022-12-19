@@ -35,11 +35,11 @@ class UnitCargo(NamedTuple):
 
     @staticmethod
     def dtype():
-        return UnitCargo._field_types['stock']
+        return UnitCargo.__annotations__['stock']
 
     @classmethod
     def new(cls, ice: int, ore: int, water: int, metal: int):
-        return cls(stock=jnp.array([ice, ore, water, metal], dtype=UnitCargo._field_types['stock']))
+        return cls(stock=jnp.array([ice, ore, water, metal], dtype=UnitCargo.__annotations__['stock']))
 
     @classmethod
     def from_lux(cls, lux_cargo: LuxUnitCargo) -> "UnitCargo":

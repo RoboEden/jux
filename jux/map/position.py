@@ -22,11 +22,11 @@ class Position(NamedTuple):
 
     @staticmethod
     def dtype() -> jnp.dtype:
-        return Position._field_types['pos']
+        return Position.__annotations__['pos']
 
     @classmethod
     def new(cls, pos: Array):
-        return cls(pos.astype(Position._field_types['pos']))
+        return cls(pos.astype(Position.__annotations__['pos']))
 
     @classmethod
     def from_lux(cls, lux_pos: LuxPosition) -> "Position":
