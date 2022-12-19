@@ -1,17 +1,20 @@
 import chex
 import jax
+import jax.numpy as jnp
 import numpy as np
 from luxai2022 import LuxAI2022
 from rich import print
 
 import jux.actions
+import jux.tree_util
 import jux.utils
 from jux.actions import JuxAction
 from jux.config import JuxBufferConfig
-from jux.env import JuxEnv
+from jux.env import JuxEnv, JuxEnvBatch
 from jux.state import State
 
 state___eq___jitted = jax.jit(chex.assert_max_traces(n=1)(State.__eq__))
+state___eq___vmap_jitted = jax.jit(jax.vmap(chex.assert_max_traces(n=1)(State.__eq__)))
 
 
 class TestJuxEnv:
@@ -127,3 +130,121 @@ class TestJuxEnv:
                 assert jux_rewards[1] == lux_rewards['player_1']
 
                 assert jux_infos == lux_infos
+
+
+class TestJuxEnvBatch:
+
+    def test_new(self):
+        chex.clear_trace_counter()
+        seeds = jnp.arange(3)
+        env_batch = JuxEnvBatch()
+        states = env_batch.reset(seeds)
+
+        env = JuxEnv()
+        states2 = jux.tree_util.batch_into_leaf([env.reset(0), env.reset(1), env.reset(2)])
+        states2 = states2._replace(board=states.board._replace(factories_per_team=states.board.factories_per_team))
+
+        assert jax.vmap(state___eq___jitted)(states, states2).all()
+
+    def test_step_bid_and_factory_placement(self):
+        chex.clear_trace_counter()
+        episode_list = [
+            '45740641',
+            '45742007',
+            '45750090',
+        ]
+        lux_env_list = []
+        lux_actions_list = []
+        for episode in episode_list:
+            env, act = jux.utils.load_replay(f'https://www.kaggleusercontent.com/episodes/{episode}.json')
+            lux_env_list.append(env)
+            lux_actions_list.append(act)
+
+        state_list = [State.from_lux(env.state) for env in lux_env_list]
+        jux_env = JuxEnv()
+        env_batch = JuxEnvBatch()
+        states = jux.tree_util.batch_into_leaf(state_list)
+
+        # bid step
+        jux_act_batch = []
+        new_state_list = []
+        for lux_actions, state in zip(lux_actions_list, state_list):
+            lux_act = next(lux_actions)
+            jux_act = jux.actions.bid_action_from_lux(lux_act)
+            state, _ = jux_env.step_bid(state, *jux_act)
+
+            jux_act_batch.append(jux_act)
+            new_state_list.append(state)
+        state_list = new_state_list
+
+        states, _ = env_batch.step_bid(states, *jux.tree_util.batch_into_leaf(jux_act_batch))
+        assert state___eq___vmap_jitted(states, jux.tree_util.batch_into_leaf(state_list)).all()
+
+        # factory placement step 1
+        jux_act_batch = []
+        new_state_list = []
+        for lux_actions, state in zip(lux_actions_list, state_list):
+            lux_act = next(lux_actions)
+            jux_act = jux.actions.factory_placement_action_from_lux(lux_act)
+            state, _ = jux_env.step_factory_placement(state, *jux_act)
+
+            jux_act_batch.append(jux_act)
+            new_state_list.append(state)
+        state_list = new_state_list
+
+        states, _ = env_batch.step_factory_placement(states, *jux.tree_util.batch_into_leaf(jux_act_batch))
+        assert state___eq___vmap_jitted(states, jux.tree_util.batch_into_leaf(state_list)).all()
+
+        # factory placement step 1
+        jux_act_batch = []
+        new_state_list = []
+        for lux_actions, state in zip(lux_actions_list, state_list):
+            lux_act = next(lux_actions)
+            jux_act = jux.actions.factory_placement_action_from_lux(lux_act)
+            state, _ = jux_env.step_factory_placement(state, *jux_act)
+
+            jux_act_batch.append(jux_act)
+            new_state_list.append(state)
+        state_list = new_state_list
+
+        states, _ = env_batch.step_factory_placement(states, *jux.tree_util.batch_into_leaf(jux_act_batch))
+        assert state___eq___vmap_jitted(states, jux.tree_util.batch_into_leaf(state_list)).all()
+
+    def test_step_late_game(self):
+        chex.clear_trace_counter()
+        episode_list = [
+            '45740641',
+            '45742007',
+            '45750090',
+        ]
+        lux_env_list = []
+        lux_actions_list = []
+        for episode in episode_list:
+            env, act = jux.utils.load_replay(f'https://www.kaggleusercontent.com/episodes/{episode}.json')
+            # skip bid and factory placement
+            while env.state.real_env_steps < 0:
+                env.step(next(act))
+
+            lux_env_list.append(env)
+            lux_actions_list.append(act)
+
+        state_list = [State.from_lux(env.state) for env in lux_env_list]
+        jux_env = JuxEnv()
+        env_batch = JuxEnvBatch()
+        states = jux.tree_util.batch_into_leaf(state_list)
+
+        # test several steps
+        for _ in range(10):
+            jux_act_batch = []
+            new_state_list = []
+            for lux_actions, state in zip(lux_actions_list, state_list):
+                lux_act = next(lux_actions)
+                jux_act = JuxAction.from_lux(state, lux_act)
+                state, _ = jux_env.step_late_game(state, jux_act)
+
+                jux_act_batch.append(jux_act)
+                new_state_list.append(state)
+            state_list = new_state_list
+
+            states, _ = env_batch.step_late_game(states, jux.tree_util.batch_into_leaf(jux_act_batch))
+            assert state___eq___vmap_jitted(states, jux.tree_util.batch_into_leaf(state_list)).all()

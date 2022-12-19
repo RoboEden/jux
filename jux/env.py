@@ -20,13 +20,13 @@ class JuxEnv:
         self._dummy_env = LuxAI2022()  # for rendering
 
     def __hash__(self) -> int:
-        return hash((self.env_cfg, self.buf_cfg))
+        return hash((JuxEnv, self.env_cfg, self.buf_cfg))
 
     def __eq__(self, __o: object) -> bool:
-        return self.env_cfg == __o.env_cfg and self.buf_cfg == __o.buf_cfg
+        return isinstance(__o, JuxEnv) and self.env_cfg == __o.env_cfg and self.buf_cfg == __o.buf_cfg
 
     @partial(jax.jit, static_argnums=(0, ))
-    def reset(self, seed: int) -> Tuple[State, Tuple[Dict, int, bool, Dict]]:
+    def reset(self, seed: int) -> State:
         return State.new(seed, self.env_cfg, self.buf_cfg)
 
     @partial(jax.jit, static_argnums=(0, ))
@@ -185,7 +185,44 @@ class JuxEnv:
         return JuxEnv(EnvConfig.from_lux(lux_env.env_cfg), buf_cfg), State.from_lux(lux_env.state, buf_cfg)
 
 
-class JuxAI2022:
-    """A LuxAI2022 compatible wrapper for Jux.
-    """
-    # TODO
+class JuxEnvBatch:
+
+    def __init__(self, env_cfg=EnvConfig(), buf_cfg=JuxBufferConfig()) -> None:
+        self.jux_env = JuxEnv(env_cfg, buf_cfg)
+
+    def __hash__(self) -> int:
+        return hash((JuxEnvBatch, self.jux_env.env_cfg, self.jux_env.buf_cfg))
+
+    def __eq__(self, __o: object) -> bool:
+        return isinstance(__o, JuxEnvBatch) and self.env_cfg == __o.env_cfg and self.buf_cfg == __o.buf_cfg
+
+    @partial(jax.jit, static_argnums=(0, ))
+    def reset(self, seeds: Array) -> Tuple[State, Tuple[Dict, int, bool, Dict]]:
+        states = jax.vmap(self.jux_env.reset)(seeds)
+
+        # for env in the same batch, they must have same state.board.factories_per_team,
+        # so that they have same number of steps to place factory
+        factories_per_team = states.board.factories_per_team.at[:].set(states.board.factories_per_team)
+        states = states._replace(board=states.board._replace(factories_per_team=factories_per_team))
+        return states
+
+    @partial(jax.jit, static_argnums=(0, ))
+    def step_bid(self, states: State, bid: Array, faction: Array) -> Tuple[State, Tuple[Dict, Array, Array, Dict]]:
+        states, (observations, rewards, dones, infos) = jax.vmap(self.jux_env.step_bid)(states, bid, faction)
+        return states, (observations, rewards, dones, infos)
+
+    @partial(jax.jit, static_argnums=(0, ))
+    def step_factory_placement(self, states: State, spawn: Array, water: Array, metal: Array) \
+                                                            -> Tuple[State, Tuple[Dict, Array, Array, Dict]]:
+        states, (observations, rewards, dones, infos) = jax.vmap(self.jux_env.step_factory_placement)(
+            states,
+            spawn,
+            water,
+            metal,
+        )
+        return states, (observations, rewards, dones, infos)
+
+    @partial(jax.jit, static_argnums=(0, ))
+    def step_late_game(self, states: State, actions: JuxAction) -> Tuple[State, Tuple[Dict, Array, Array, Dict]]:
+        states, (observations, rewards, dones, infos) = jax.vmap(self.jux_env.step_late_game)(states, actions)
+        return states, (observations, rewards, dones, infos)
