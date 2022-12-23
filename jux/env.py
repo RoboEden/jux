@@ -187,6 +187,14 @@ class JuxEnv:
 
 class JuxEnvBatch:
 
+    @property
+    def env_cfg(self) -> EnvConfig:
+        return self.jux_env.env_cfg
+
+    @property
+    def buf_cfg(self) -> JuxBufferConfig:
+        return self.jux_env.buf_cfg
+
     def __init__(self, env_cfg=EnvConfig(), buf_cfg=JuxBufferConfig()) -> None:
         self.jux_env = JuxEnv(env_cfg, buf_cfg)
 
@@ -202,7 +210,7 @@ class JuxEnvBatch:
 
         # for env in the same batch, they must have same state.board.factories_per_team,
         # so that they have same number of steps to place factory
-        factories_per_team = states.board.factories_per_team.at[:].set(states.board.factories_per_team)
+        factories_per_team = states.board.factories_per_team.at[:].set(states.board.factories_per_team[0])
         states = states._replace(board=states.board._replace(factories_per_team=factories_per_team))
         return states
 

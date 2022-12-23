@@ -170,10 +170,10 @@ class State(NamedTuple):
         unit_id2idx = State.generate_unit_id2idx(units, buf_cfg.MAX_GLOBAL_ID)
         n_units = jnp.zeros(shape=(2, ), dtype=Unit.id_dtype())
 
-        factories = Factory.empty()
-        factories = jax.tree_map(lambda x: x[None].repeat(buf_cfg.MAX_N_FACTORIES, axis=0), empty_unit)
+        empty_factory = Factory.empty()
+        factories = jax.tree_map(lambda x: x[None].repeat(buf_cfg.MAX_N_FACTORIES, axis=0), empty_factory)
         factories = jax.tree_map(lambda x: x[None].repeat(2, axis=0), factories)
-        factory_id2idx = State.generate_unit_id2idx(factories, buf_cfg.MAX_GLOBAL_ID)
+        factory_id2idx = State.generate_factory_id2idx(factories, buf_cfg.MAX_N_FACTORIES)
         n_factories = jnp.zeros(shape=(2, ), dtype=Factory.id_dtype())
 
         teams = jux.tree_util.batch_into_leaf([Team.new(team_id=id, buf_cfg=buf_cfg) for id in range(2)])

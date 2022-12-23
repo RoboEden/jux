@@ -154,7 +154,7 @@ class Board(NamedTuple):
         )
 
         factory_pos = jnp.full(
-            shape=(2, buf_cfg.MAX_N_FACTORIES, 2),
+            shape=(2 * buf_cfg.MAX_N_FACTORIES, 2),
             fill_value=imax(Position.dtype()),
         )
 
