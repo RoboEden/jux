@@ -5,12 +5,12 @@ We are going to support `python>=3.7,<3.11`.
 ## Install requirements
 Make sure you have nvcc, cuda-toolkit and cudnn installed. There are two ways to get them ready, either by conda or docker (recommended).
 
-If you are using conda, you can install them with the following commands.
+For conda users, you can install them with the following commands.
 ```console
 $ conda install -c nvidia cuda-nvcc cuda-python
 $ conda install cudnn
 ```
-If you are docker user, you can use [NVIDIA CUDA docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda) or [PyTorch docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch), which have all them ready.
+For docker users, you can use the [NVIDIA CUDA docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda) or the [PyTorch docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch), which has all of them ready and compatible with each other.
 
 ## Install JUX
 Upgrade pip and install JUX in editable mode with optional-dependencies for `dev`.
