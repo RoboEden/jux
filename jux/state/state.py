@@ -182,7 +182,7 @@ class State(NamedTuple):
             env_cfg=env_cfg,
             seed=seed,
             rng_state=key,
-            env_steps=State._field_types['env_steps'](0),
+            env_steps=State.__annotations__['env_steps'](0),
             board=board,
             weather_schedule=weather_schedule,
             units=units,
@@ -266,9 +266,9 @@ class State(NamedTuple):
             teams: Team = batch_into_leaf_jitted(teams)
 
             if 'player_0' in lux_state.teams and lux_state.teams['player_0'].place_first:
-                place_first = State._field_types['place_first'](0)
+                place_first = State.__annotations__['place_first'](0)
             else:
-                place_first = State._field_types['place_first'](1)
+                place_first = State.__annotations__['place_first'](1)
 
             seed = lux_state.seed if lux_state.seed is not None else INT32_MAX
 
@@ -276,7 +276,7 @@ class State(NamedTuple):
                 env_cfg=env_cfg,
                 seed=seed,
                 rng_state=jax.random.PRNGKey(seed),
-                env_steps=State._field_types['env_steps'](lux_state.env_steps),
+                env_steps=State.__annotations__['env_steps'](lux_state.env_steps),
                 board=Board.from_lux(lux_state.board, buf_cfg),
                 weather_schedule=jnp.array(lux_state.weather_schedule),
                 units=units,
@@ -286,7 +286,7 @@ class State(NamedTuple):
                 n_factories=n_factories,
                 factory_id2idx=factory_id2idx,
                 teams=teams,
-                global_id=State._field_types['global_id'](lux_state.global_id),
+                global_id=State.__annotations__['global_id'](lux_state.global_id),
                 place_first=place_first,
             )
         state = jax.device_put(state, jax.devices()[0])
@@ -488,10 +488,10 @@ class State(NamedTuple):
         Returns:
             State: new game state
         """
-        init_resource = Team._field_types['init_water'](self.env_cfg.INIT_WATER_METAL_PER_FACTORY)
+        init_resource = Team.__annotations__['init_water'](self.env_cfg.INIT_WATER_METAL_PER_FACTORY)
         init_resource = init_resource * self.board.factories_per_team
-        init_water = jnp.full(shape=(2, ), fill_value=init_resource, dtype=Team._field_types['init_water'])
-        init_metal = jnp.full(shape=(2, ), fill_value=init_resource, dtype=Team._field_types['init_metal'])
+        init_water = jnp.full(shape=(2, ), fill_value=init_resource, dtype=Team.__annotations__['init_water'])
+        init_metal = jnp.full(shape=(2, ), fill_value=init_resource, dtype=Team.__annotations__['init_metal'])
 
         valid_actions = (bid <= init_resource) & (bid >= -init_resource)
 
@@ -517,14 +517,14 @@ class State(NamedTuple):
         self = self._replace(
             teams=self.teams._replace(
                 faction=faction,
-                init_water=init_water.astype(Team._field_types['init_water']),
-                init_metal=init_metal.astype(Team._field_types['init_metal']),
+                init_water=init_water.astype(Team.__annotations__['init_water']),
+                init_metal=init_metal.astype(Team.__annotations__['init_metal']),
                 factories_to_place=jnp.array(
                     [self.board.factories_per_team] * 2,
-                    dtype=Team._field_types['factories_to_place'],
+                    dtype=Team.__annotations__['factories_to_place'],
                 ),
             ),
-            place_first=State._field_types['place_first'](place_first),
+            place_first=State.__annotations__['place_first'](place_first),
             env_steps=self.env_steps + 1,
         )
         return self
@@ -654,7 +654,7 @@ class State(NamedTuple):
         failed_players = failed_players | failed_factory
 
         # check units
-        action_mask = jnp.arange(self.UNIT_ACTION_QUEUE_SIZE, dtype=ActionQueue._field_types['count'])
+        action_mask = jnp.arange(self.UNIT_ACTION_QUEUE_SIZE, dtype=ActionQueue.__annotations__['count'])
         action_mask = jnp.repeat(
             action_mask[None, :],
             2 * self.MAX_N_UNITS,
@@ -677,7 +677,7 @@ class State(NamedTuple):
             self.env_cfg.ROBOTS[0].ACTION_QUEUE_POWER_COST,
             self.env_cfg.ROBOTS[1].ACTION_QUEUE_POWER_COST,
         ],
-                                            dtype=Unit._field_types['power'])
+                                            dtype=Unit.__annotations__['power'])
         update_power_req = action_queue_power_cost[self.units.unit_type] * weather_cfg["power_loss_factor"]
         chex.assert_shape(update_power_req, (2, self.MAX_N_UNITS))
         update_queue = actions.unit_action_queue_update & unit_mask & (update_power_req <= self.units.power)
@@ -1178,7 +1178,7 @@ class State(NamedTuple):
     def _validate_movement_actions(self, actions: UnitAction,
                                    weather_cfg: Dict[str, Union[int, float]]) -> Tuple[Array, Array]:
         unit_mask = self.unit_mask
-        player_id = jnp.array([0, 1])[..., None].astype(Team._field_types['team_id'])
+        player_id = jnp.array([0, 1])[..., None].astype(Team.__annotations__['team_id'])
 
         is_moving = ((actions.action_type == UnitActionType.MOVE) & (actions.direction != Direction.CENTER)) & unit_mask
 
@@ -1427,7 +1427,7 @@ class State(NamedTuple):
         # lichen growth
         factory_color = color.at[self.factories.pos.x, self.factories.pos.y] \
                              .get(mode='fill', fill_value=imax(color.dtype))  # int[2, F, 2]
-        delta_lichen = jnp.zeros((H, W), dtype=Board._field_types['lichen'])  # int[H, W]
+        delta_lichen = jnp.zeros((H, W), dtype=Board.__annotations__['lichen'])  # int[H, W]
         delta_lichen = delta_lichen.at[factory_color[..., 0], factory_color[..., 1]].add(valid * 2, mode='drop')
         delta_lichen = delta_lichen.at[color[..., 0], color[..., 1]].get(mode='fill', fill_value=0)
         delta_lichen = jnp.where(self.board.factory_occupancy_map == imax(self.board.factory_occupancy_map.dtype),
@@ -1435,7 +1435,7 @@ class State(NamedTuple):
         new_lichen = self.board.lichen + delta_lichen
 
         # lichen strain
-        lichen_strains = jnp.zeros((H, W), dtype=Board._field_types['lichen_strains'])  # int[H, W]
+        lichen_strains = jnp.zeros((H, W), dtype=Board.__annotations__['lichen_strains'])  # int[H, W]
         lichen_strains = lichen_strains.at[factory_color[..., 0], factory_color[..., 1]]\
                                        .set(self.factories.unit_id, mode='drop')
         lichen_strains = lichen_strains.at[color[..., 0], color[..., 1]].get(mode='fill', fill_value=0)
