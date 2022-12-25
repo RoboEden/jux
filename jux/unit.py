@@ -128,35 +128,46 @@ class Unit(NamedTuple):
             Unit: the unit with updated action queue
         '''
 
-        def _repeat_minus_one(action_queue: ActionQueue) -> ActionQueue:
-            data = action_queue.data._replace(repeat=action_queue.data.repeat.at[action_queue.front].add(-1))
-            return action_queue._replace(data=data)
+        act = self.action_queue.peek()
+        not_empty = ~self.action_queue.is_empty()
+        repeat_minus_one = (act.repeat > 0) & success & not_empty
+        pop_only = (act.repeat == 0) & success & not_empty
+        pop_and_push_back = (act.repeat < 0) & success & not_empty
 
-        def _pop_and_push_back(action_queue: ActionQueue) -> ActionQueue:
-            act, new_queue = action_queue.pop()
-            return new_queue.push_back(act)
-
-        def _repeat_action(self: 'Unit'):
-            act = self.action_queue.peek()
-            repeat_minus_one = (act.repeat > 0)
-            pop_and_push_back = (act.repeat < 0)
-            action_queue = jax.lax.switch(
-                repeat_minus_one + pop_and_push_back * 2,
-                [
-                    lambda queue: queue.pop()[1],
-                    _repeat_minus_one,
-                    _pop_and_push_back,
-                ],
-                self.action_queue,
-            )
-            return self._replace(action_queue=action_queue)
-
-        return jax.lax.cond(
-            success & ~self.action_queue.is_empty(),
-            lambda self: _repeat_action(self),
-            lambda self: self,
-            self,
+        data = jax.tree_map(
+            lambda queue, a: queue.at[self.action_queue.rear].set(a),
+            self.action_queue.data,
+            act,
         )
+        repeat = data.repeat.at[self.action_queue.front]\
+                            .add(-repeat_minus_one.astype(data.repeat.dtype))
+        data = data._replace(repeat=repeat)
+
+        front = jnp.where(
+            pop_only | pop_and_push_back,
+            (self.action_queue.front + 1) % self.action_queue.capacity,
+            self.action_queue.front,
+        )
+
+        rear = jnp.where(
+            pop_and_push_back,
+            (self.action_queue.rear + 1) % self.action_queue.capacity,
+            self.action_queue.rear,
+        )
+
+        count = jnp.where(
+            pop_only,
+            self.action_queue.count - 1,
+            self.action_queue.count,
+        )
+
+        action_queue = self.action_queue._replace(
+            data=data,
+            front=front,
+            rear=rear,
+            count=count,
+        )
+        return self._replace(action_queue=action_queue)
 
     def is_heavy(self) -> Union[bool, Array]:
         return self.unit_type == UnitType.HEAVY
