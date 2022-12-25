@@ -81,7 +81,7 @@ class TestJuxEnv:
         chex.clear_trace_counter()
         episode_list = [
             '45740641',
-            '45742007',
+            '45885903',
             '45750090',
         ]
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
@@ -150,7 +150,7 @@ class TestJuxEnvBatch:
         chex.clear_trace_counter()
         episode_list = [
             '45740641',
-            '45742007',
+            '45885903',
             '45750090',
         ]
         lux_env_list = []
@@ -214,7 +214,7 @@ class TestJuxEnvBatch:
         chex.clear_trace_counter()
         episode_list = [
             '45740641',
-            '45742007',
+            '45885903',
             '45750090',
         ]
         lux_env_list = []

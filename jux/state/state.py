@@ -715,7 +715,7 @@ class State(NamedTuple):
 
         # 3. validating all actions against current state is not implemented here, but implemented in each action.
         valid_movement, movement_power_cost = self._validate_movement_actions(unit_action, weather_cfg)
-        valid_water, water_cost, strain_color = self._cache_water_info(factory_actions)
+
         action_info = dict(
             valid_transfer=self._validate_transfer_actions(unit_action),  # bool[2, U]
             valid_pickup=self._validate_pickup_actions(unit_action),  # bool[2, U]
@@ -727,54 +727,36 @@ class State(NamedTuple):
                 power_cost=movement_power_cost,  # int[2, U]
             ),
             valid_recharge=self._validate_recharge_actions(unit_action),
-            water_info=dict(
-                valid=valid_water,
-                water_cost=water_cost,
-                color=strain_color,
-            ),
         )
 
         # 4. execute actions.
+        self = self._handle_dig_actions(unit_action, weather_cfg, action_info['valid_dig'])
+        self, dead = self._handle_self_destruct_actions(unit_action, weather_cfg, action_info['valid_self_destruct'])
+        self = self._handle_factory_build_actions(factory_actions, weather_cfg, action_info['valid_factory_build'])
+        self, new_dead = self._handle_movement_actions(unit_action, weather_cfg, action_info['movement_info'], dead)
+        dead = dead | new_dead
+        # Not all valid recharge actions are executed successfully, there is a `suc` indicator returned.
+        self, recharge_success = self._handle_recharge_actions(unit_action, action_info['valid_recharge'])
+
+        self = self.add_rubble_for_dead_units(dead)
+
+        self = self._handle_factory_water_actions(factory_actions)
         self = self._handle_transfer_actions(unit_action, action_info['valid_transfer'])
         self = self._handle_pickup_actions(unit_action, action_info['valid_pickup'])
-        self = self._handle_dig_actions(unit_action, weather_cfg, action_info['valid_dig'])
-
-        # self_destruct changes the unit order. In such case, `success`,
-        # `actions`, and `action_info` unit_action must be reordered
-        # accordingly.
-        self, live_idx = self._handle_self_destruct_actions(unit_action, weather_cfg,
-                                                            action_info['valid_self_destruct'])
-
-        # re-order success, actions, and action info, because some units died.
-        unit_mask = self.unit_mask
-        # bool[2, U]
-        success = action_info['valid_transfer'] | action_info['valid_pickup'] | action_info['valid_dig']
-        success, unit_action, action_info['movement_info'], action_info['valid_recharge'] = jax.tree_map(
-            lambda x: x[jnp.arange(2)[:, None], live_idx],
-            (success, unit_action, action_info['movement_info'], action_info['valid_recharge']),
-        )
-
-        self = self._handle_factory_build_actions(factory_actions, weather_cfg, action_info['valid_factory_build'])
-
-        # Same as self_destruct. Movement may change the unit order because of
-        # collisions. So, `success`, `actions`, and `action_info` unit_action
-        # must be reordered accordingly.
-        self, live_idx = self._handle_movement_actions(unit_action, weather_cfg, action_info['movement_info'])
-
-        success = success | action_info['movement_info']['valid']
-        success, unit_action, action_info['valid_recharge'] = jax.tree_map(
-            lambda x: x[jnp.arange(2)[:, None], live_idx],
-            (success, unit_action, action_info['valid_recharge']),
-        )
-
-        # Not all valid recharge actions are executed successfully, there is a `suc` indicator returned.
-        self, suc = self._handle_recharge_actions(unit_action, action_info['valid_recharge'])
-        success = success | suc
-        self = self._handle_factory_water_actions(factory_actions, action_info['water_info'])
 
         # handle action pop and repeat
+        success = (
+            action_info['valid_dig'] | \
+            recharge_success | \
+            action_info['movement_info']['valid'] | \
+            action_info['valid_transfer'] | \
+            action_info['valid_pickup']
+        )
         units = jax.vmap(jax.vmap(Unit.repeat_action))(self.units, success)
         self = self._replace(units=units)
+
+        # destroy dead units
+        self, _ = self.destroy_unit(dead)
 
         # update lichen
         new_lichen = self.board.lichen - 1
@@ -823,11 +805,6 @@ class State(NamedTuple):
         # update step number
         self = self._replace(env_steps=self.env_steps + 1)
 
-        # always set rubble under factories to 0.
-        INT_MAX = imax(self.board.factory_occupancy_map.dtype)
-        rubble = jnp.where(self.board.factory_occupancy_map != INT_MAX, 0, self.board.rubble)
-        self = self._replace(board=self.board._replace(map=self.board.map._replace(rubble=rubble)))
-
         return self
 
     def _validate_transfer_actions(self, actions: UnitAction):
@@ -849,12 +826,12 @@ class State(NamedTuple):
         target_factory_id = self.board.factory_occupancy_map[target_pos.x, target_pos.y]  # int[2, U]
         target_factory_idx = self.factory_id2idx.at[target_factory_id] \
                                                 .get('fill', fill_value=imax(self.factory_id2idx.dtype))  # int[2, U, 2]
-        there_is_a_factory = target_factory_idx[..., 1] < self.n_factories[:, None]  # bool[2, U]
+        there_is_a_factory = target_factory_idx[..., 1] < self.n_factories[target_factory_idx[..., 0]]  # bool[2, U]
 
         target_unit_id = self.board.units_map[target_pos.x, target_pos.y]  # int[2, U]
         target_unit_idx = self.unit_id2idx.at[target_unit_id] \
                                           .get('fill', fill_value=imax(self.unit_id2idx.dtype))  # int[2, U, 2]
-        there_is_an_unit = target_unit_idx[..., 1] < self.n_units[:, None]  # bool[2, U]
+        there_is_an_unit = target_unit_idx[..., 1] < self.n_units[target_unit_idx[..., 0]]  # bool[2, U]
 
         transfer_to_factory = valid & there_is_a_factory  # bool[2, U]
         transfer_to_unit = valid & ~there_is_a_factory & there_is_an_unit  # bool[2, U]
@@ -873,12 +850,12 @@ class State(NamedTuple):
         transferred_resource = jnp.where(transfer_to_factory & ~is_power, transfer_amount, 0)  # int[2, U]
         transferred_power = jnp.where(transfer_to_factory & is_power, transfer_amount, 0)  # int[2, U]
         factory_stock = self.factories.cargo.stock.at[(
-            jnp.arange(2)[:, None],
+            target_factory_idx[..., 0],
             target_factory_idx[..., 1],
             actions.resource_type,
         )].add(transferred_resource, mode='drop')  # int[2, F, 4]
         factory_power = self.factories.power.at[(
-            jnp.arange(2)[:, None],
+            target_factory_idx[..., 0],
             target_factory_idx[..., 1],
         )].add(transferred_power, mode='drop')  # int[2, F]
         factories = self.factories._replace(
@@ -891,7 +868,7 @@ class State(NamedTuple):
         transferred_resource = jnp.where(transfer_to_unit & ~is_power, transfer_amount, 0)  # int[2, U]
         transferred_power = jnp.where(transfer_to_unit & is_power, transfer_amount, 0)  # int[2, U]
         unit_stock = self.units.cargo.stock.at[(
-            jnp.arange(2)[:, None],
+            target_unit_idx[..., 0],
             target_unit_idx[..., 1],
             actions.resource_type,
         )].add(transferred_resource, mode='drop')  # int[2, U, 4]
@@ -899,7 +876,7 @@ class State(NamedTuple):
         unit_stock = jnp.minimum(unit_stock, cargo_space[..., None])  # int[2, U, 4]
 
         unit_power = self.units.power.at[(
-            jnp.arange(2)[:, None],
+            target_unit_idx[..., 0],
             target_unit_idx[..., 1],
         )].add(transferred_power, mode='drop')  # int[2, U]
         battery_capacity = self.units.get_cfg("BATTERY_CAPACITY", self.env_cfg.ROBOTS)
@@ -940,14 +917,14 @@ class State(NamedTuple):
 
         # 1. prepare some data
         # get the pos of 9 cells around the factory
-        occupy_delta = jnp.array([[0, -1], [0, 0], [0, 1],], dtype=Position.dtype())[None] + \
-            jnp.array([[-1, 0], [0, 0], [1, 0]], dtype=Position.dtype())[:, None]  # int[3, 3, 2]
-        occupy_delta = occupy_delta.reshape((-1, 2))  # int[9, 2]
-        occupy_pos = Position(self.factories.pos.pos[..., None, :] + occupy_delta)  # int[2, F, 9, 2]
+        occupy_pos = self.factories.occupancy
         chex.assert_shape(occupy_pos, (2, self.MAX_N_FACTORIES, 9, 2))
 
         # get the unit idx on factories
-        unit_id_on_factory = self.board.units_map[occupy_pos.x, occupy_pos.y]
+        pickup_pos = jnp.where(valid[..., None], self.units.pos.pos, imax(self.units.pos.pos.dtype))  # int[2, U, 2]
+        board = self.board.update_units_map(self.units._replace(pos=Position(pickup_pos)))
+        units_map = board.units_map  # int[H, W]
+        unit_id_on_factory = units_map[occupy_pos.x, occupy_pos.y]
         unit_id_on_factory = jnp.sort(unit_id_on_factory, axis=-1)  # sort by id, so small ids have higher priority
         unit_idx_on_factory = self.unit_id2idx[unit_id_on_factory]  # int[2, F, 9, 2]
         unit_team_idx, unit_idx = unit_idx_on_factory[..., 0], unit_idx_on_factory[..., 1]  # int[2, F, 9]
@@ -1094,9 +1071,21 @@ class State(NamedTuple):
         valid: Array,
     ) -> Tuple['State', Array]:
 
-        self, live_idx = self.destroy_unit(dead=valid)
+        # bool indicator of dead units
+        dead = valid
 
-        return self, live_idx
+        units = self.units
+        pos_without_dead = jnp.where(
+            dead[..., None],
+            imax(units.pos.pos.dtype),
+            units.pos.pos,
+        )
+        self = self._replace(
+            units=units,
+            board=self.board.update_units_map(units._replace(pos=Position(pos_without_dead))),
+        )
+
+        return self, dead
 
     def _validate_factory_build_actions(self: 'State', factory_actions: Array,
                                         weather_cfg: Dict[str, Union[int, float]]) -> Array:
@@ -1208,7 +1197,7 @@ class State(NamedTuple):
         return valid, power_cost
 
     def _handle_movement_actions(self, actions: UnitAction, weather_cfg: Dict[str, Union[int, float]],
-                                 movement_info: Dict[str, Array]) -> Tuple['State', Array]:
+                                 movement_info: Dict[str, Array], already_dead: Array) -> Tuple['State', Array]:
         valid, power_cost = movement_info['valid'], movement_info['power_cost']
 
         # move to center is not considered as moving
@@ -1234,12 +1223,13 @@ class State(NamedTuple):
 
         # count the number of different types of units in each location
         x, y = units.pos.x, units.pos.y
+        is_living = ~already_dead & unit_mask
 
         cnt = jnp.zeros_like(self.board.units_map)
-        still_light_cnt = cnt.at[x, y].add(light & still, mode='drop')  # int[H, W]
-        moving_light_cnt = cnt.at[x, y].add(light & moving, mode='drop')  # int[H, W]
-        still_heavy_cnt = cnt.at[x, y].add(heavy & still, mode='drop')  # int[H, W]
-        moving_heavy_cnt = cnt.at[x, y].add(heavy & moving, mode='drop')  # int[H, W]
+        still_light_cnt = cnt.at[x, y].add(light & still & is_living, mode='drop')  # int[H, W]
+        moving_light_cnt = cnt.at[x, y].add(light & moving & is_living, mode='drop')  # int[H, W]
+        still_heavy_cnt = cnt.at[x, y].add(heavy & still & is_living, mode='drop')  # int[H, W]
+        moving_heavy_cnt = cnt.at[x, y].add(heavy & moving & is_living, mode='drop')  # int[H, W]
         chex.assert_equal_shape([still_light_cnt, moving_light_cnt, still_heavy_cnt, moving_heavy_cnt, cnt])
 
         # map above count to agent-wise
@@ -1268,25 +1258,20 @@ class State(NamedTuple):
             (heavy & moving & (moving_heavy_cnt > 1)),
         ]
         # or them together
-        dead = functools.reduce(jnp.logical_or, cases)
+        new_dead = functools.reduce(jnp.logical_or, cases)
 
-        self = self._replace(units=units)
-        self, live_idx = self.destroy_unit(dead)
+        pos_without_dead = jnp.where(
+            (already_dead | new_dead)[..., None],
+            imax(units.pos.pos.dtype),
+            units.pos.pos,
+        )
+        self = self._replace(
+            units=units,
+            board=self.board.update_units_map(units._replace(pos=Position(pos_without_dead))),
+        )
+        return self, new_dead
 
-        return self, live_idx
-
-    def destroy_unit(self, dead: Array) -> Tuple['State', Array]:
-        '''
-        Destroy dead units, and put them into the end of the array.
-
-        Args:
-            dead: bool[2, U], dead indicator.
-
-        Returns:
-            new_state: State, new state.
-            live_idx: int[2, U], the index of live units. Only the part with self.unit_mask == True is valid.
-        '''
-        unit_mask = self.unit_mask  # bool[2, U]
+    def add_rubble_for_dead_units(self, dead: Array) -> 'State':
         units = self.units
 
         # add rubble to the board, and remove lichen
@@ -1305,6 +1290,32 @@ class State(NamedTuple):
             units.pos.x,
             units.pos.y,
         )].max(jnp.where(dead, imax(self.board.lichen_strains.dtype), -1), mode='drop')
+
+        # always set rubble under factories to 0.
+        occupancy = self.factories.occupancy
+        rubble = rubble.at[occupancy.x, occupancy.y].set(0, mode='drop')
+
+        board = self.board._replace(
+            map=self.board.map._replace(rubble=rubble),
+            lichen=lichen,
+            lichen_strains=lichen_strains,
+        )
+
+        return self._replace(board=board)
+
+    def destroy_unit(self, dead: Array) -> Tuple['State', Array]:
+        '''
+        Destroy dead units, and put them into the end of the array.
+
+        Args:
+            dead: bool[2, U], dead indicator.
+
+        Returns:
+            new_state: State, new state.
+            live_idx: int[2, U], the index of live units. Only the part with self.unit_mask == True is valid.
+        '''
+        unit_mask = self.unit_mask  # bool[2, U]
+        units = self.units
 
         # remove dead units, put them into the end of the array
         is_alive = ~dead & unit_mask
@@ -1326,11 +1337,6 @@ class State(NamedTuple):
 
         # update board
         board = self.board.update_units_map(units)
-        board = board._replace(
-            map=board.map._replace(rubble=rubble),
-            lichen=lichen,
-            lichen_strains=lichen_strains,
-        )
 
         self = self._replace(
             units=units,
@@ -1413,13 +1419,15 @@ class State(NamedTuple):
         success = valid & (self.units.power >= actions.amount)
         return self, success
 
-    def _handle_factory_water_actions(self, factory_actions: Array, water_info: Array) -> 'State':
+    def _handle_factory_water_actions(self, factory_actions: Array) -> 'State':
 
         H, W = self.board.lichen_strains.shape
 
-        color = water_info['color']  # int[H, W, 2]
-        water_cost = water_info['water_cost']  # int[2, F]
-        valid = water_info['valid']  # bool[2, F]
+        valid, water_cost, color = self._cache_water_info(factory_actions)
+
+        valid  # bool[2, F]
+        water_cost  # int[2, F]
+        color  # int[H, W, 2]
 
         # new factory stocks
         new_stock = self.factories.cargo.stock.at[..., ResourceType.water].add(-water_cost)
@@ -1430,8 +1438,8 @@ class State(NamedTuple):
         delta_lichen = jnp.zeros((H, W), dtype=Board.__annotations__['lichen'])  # int[H, W]
         delta_lichen = delta_lichen.at[factory_color[..., 0], factory_color[..., 1]].add(valid * 2, mode='drop')
         delta_lichen = delta_lichen.at[color[..., 0], color[..., 1]].get(mode='fill', fill_value=0)
-        delta_lichen = jnp.where(self.board.factory_occupancy_map == imax(self.board.factory_occupancy_map.dtype),
-                                 delta_lichen, 0)
+        factory_occupancy = self.factories.occupancy
+        delta_lichen = delta_lichen.at[factory_occupancy.x, factory_occupancy.y].set(0, mode='drop')
         new_lichen = self.board.lichen + delta_lichen
 
         # lichen strain
@@ -1540,8 +1548,8 @@ class State(NamedTuple):
         # 2.3 calculate the strains id, if it is expanded to.
         expand_center = (connected_lichen != imax(connected_lichen.dtype)) & \
                         (self.board.lichen >= self.env_cfg.MIN_LICHEN_TO_SPREAD)
-        expand_center = expand_center | (self.board.factory_occupancy_map != imax(
-            self.board.factory_occupancy_map.dtype))
+        factory_occupancy = self.factories.occupancy
+        expand_center = expand_center.at[factory_occupancy.x, factory_occupancy.y].set(True, mode='drop')
         expand_center = jnp.where(expand_center, connected_lichen, imax(connected_lichen.dtype))
         INT_MAX = imax(expand_center.dtype)
         strain_id_if_expand = jnp.minimum(  # int[H, W]
@@ -1575,22 +1583,7 @@ class State(NamedTuple):
         return valid, water_cost, color
 
     def _mars_quake(self) -> 'State':
-        x, y = self.units.pos.x, self.units.pos.y  # int[]
-        chex.assert_shape(x, (2, self.MAX_N_UNITS))
-        chex.assert_shape(y, (2, self.MAX_N_UNITS))
-        rubble_amount = self.units.get_cfg("RUBBLE_AFTER_DESTRUCTION", self.env_cfg.ROBOTS)
-        chex.assert_shape(rubble_amount, (2, self.MAX_N_UNITS))
-
-        rubble = self.board.rubble.at[x, y].add(rubble_amount.astype(self.board.rubble.dtype), mode='drop')
-        rubble = jnp.minimum(rubble, self.env_cfg.MAX_RUBBLE)
-        chex.assert_equal_shape([rubble, self.board.rubble])
-
-        board = self.board
-        map = board.map
-        map = map._replace(rubble=rubble)
-        board = board._replace(map=map)
-        self = self._replace(board=board)
-        return self
+        return self.add_rubble_for_dead_units(self.unit_mask)
 
     def team_lichen_score(self: 'State') -> Array:
         factory_id2idx = self.generate_factory_id2idx(

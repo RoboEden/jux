@@ -377,6 +377,10 @@ class JuxAction(NamedTuple):
                 else:
                     raise ValueError(f'Unknown unit_id: {unit_id}')
 
+        # handle a deprecated features in LuxAI2021
+        # In old version, the 2rd dimension of action serves as `dist` for moving action.
+        unit_action_queue.resource_type[unit_action_queue.action_type == UnitActionType.MOVE] = 0
+
         factory_action = jnp.array(factory_action)
         unit_action_queue = jax.tree_map(jnp.array, unit_action_queue)
         unit_action_queue_count = jnp.array(unit_action_queue_count)

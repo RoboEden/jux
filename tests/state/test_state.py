@@ -41,10 +41,10 @@ class TestState(chex.TestCase):
 
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
-        env, actions = jux.utils.load_replay('https://www.kaggleusercontent.com/episodes/45715004.json')
+        env, actions = jux.utils.load_replay('https://www.kaggleusercontent.com/episodes/45885903.json')
 
         # skip early stage
-        while env.env_steps < 5:
+        while env.env_steps < 9:
             act = next(actions)
             env.step(act)
 
@@ -92,7 +92,7 @@ class TestState(chex.TestCase):
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
 
-        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45715004.json")
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45885903.json")
 
         # skip first several steps, since it contains no recharge action
         while env.env_steps < 10 + 149:
@@ -138,9 +138,9 @@ class TestState(chex.TestCase):
 
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
-        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45715004.json")
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45885903.json")
         # The first 905 steps do not contains any FactoryAction.Water, so we skip them.
-        while env.env_steps < 435:
+        while env.env_steps < 300:
             act = next(actions)
             env.step(act)
 
@@ -171,8 +171,8 @@ class TestState(chex.TestCase):
         # 4. real test starts here
 
         # step util end
-        for i, act in zip(range(300), actions):
-            if env.env_steps % 10 == 0:
+        for i, act in enumerate(actions):
+            if env.env_steps % 50 == 0:
                 print(f"steps: {env.env_steps}")
                 jux_state = State.from_lux(env.state, buf_cfg)
                 jux_state, lux_state = step_both(jux_state, env, act)
@@ -185,14 +185,10 @@ class TestState(chex.TestCase):
         cases = [
             # Some steps are skipped because of bugs in the official one.
             # episode id and skip steps.
-            ('45731509', [177, 178, 238]),  # 177, 178, 238, 713, 734, 776, 821
-            ('45740668', [25]),  # 16, 25, 38
-            ('45742163', [248, 297, 392]),  # 248, 296, 297, 392
-
-            # the following episodes are moved to tests/test_env.py.
-            # ('45740641', []),
-            # ('45742007', []),
-            # ('45750090', [])
+            ('45885449', []),
+            ('45885731', []),
+            ('45885907', []),
+            ('45886082', []),
         ]
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
 
@@ -241,7 +237,7 @@ class TestState(chex.TestCase):
             assert_state_eq(jux_state, lux_state)
 
     def test_team_lichen_score(self):
-        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45715004.json")
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45885903.json")
         for act in actions:
             _, lux_rewards, _, _ = env.step(act)
         lux_rewards = jnp.array(list(lux_rewards.values()))
@@ -268,10 +264,7 @@ class TestEarlyStageState(chex.TestCase):
             obs = env.reset(seed)
             n_factory = (-obs['player_0']['real_env_steps'] - 1) // 2
             init_water_metal = env.env_cfg.INIT_WATER_METAL_PER_FACTORY * n_factory
-            bid_range = (
-                -init_water_metal * (n_factory + 1),
-                init_water_metal * (n_factory + 1),
-            )
+            bid_range = (-init_water_metal, init_water_metal)
             bid_act = {
                 'player_0': {
                     'bid': random.randint(*bid_range),
