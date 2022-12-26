@@ -15,7 +15,8 @@ For docker users, you can use the [NVIDIA CUDA docker image](https://catalog.ngc
 ### Install JUX
 First, you need to clone the repository.
 ```console
-git clone ...
+git clone https://github.com/RoboEden/jux.git
+cd jux
 ```
 Then, upgrade your pip and install JUX.
 ```console

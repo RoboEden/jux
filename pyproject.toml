@@ -25,7 +25,7 @@
     dynamic = ["version"]
 
     [project.urls]
-    repository = "https://gitlab.parametrix.cn/parametrix/challenge/jux"
+    repository = "https://github.com/RoboEden/jux"
     # TODO: add homepage url
     # TODO: add documentation url
 
