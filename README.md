@@ -29,7 +29,7 @@ $ pip install ./jux[torch] -f https://storage.googleapis.com/jax-releases/jax_cu
 ```
 
 ## Usage
-See [tutorial.ipynb](tutorial.ipynb) for a quick start.
+ See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai2022==1.1.4`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI2022 may process them differently.
 
 ## Performance
 JUX maps all game logic to array operators in JAX so that we can harvest the computational power of modern GPUs and support tons of environments running in parallel. We benchmarked JUX on several different GPUs, and increased the throughput by hundreds to thousands of times, compared with the original single-thread Python implementation.
