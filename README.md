@@ -13,21 +13,12 @@ $ conda install cudnn
 For docker users, you can use the [NVIDIA CUDA docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda) or the [PyTorch docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch), which has all of them ready and compatible with each other.
 
 ### Install JUX
-First, you need to clone the repository.
-```console
-git clone https://github.com/RoboEden/jux.git
-cd jux
-```
-Then, upgrade your pip and install JUX.
+Upgrade your pip and install JUX.
 ```console
 $ pip install --upgrade pip
-$ pip install ./jux -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+$ pip install juxai2022 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
-<!-- TODO: release to PyPI -->
-For PyTorch users, you can install JUX with optional dependencies for PyTorch.
-```console
-$ pip install ./jux[torch] -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-```
+The extra URL `https://storage.googleapis.com/...` is needed for JAX to be installed correctly.
 
 ## Usage
  See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai2022==1.1.4`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI2022 may process them differently.
