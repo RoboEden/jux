@@ -6,10 +6,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-from luxai2022.state import State as LuxState
+from luxai_s2.state import State as LuxState
 
 import jux.tree_util
-import jux.weather
 from jux.actions import FactoryAction, JuxAction, UnitAction, UnitActionType
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.factory import Factory, LuxFactory
@@ -43,7 +42,6 @@ class State(NamedTuple):
 
     env_steps: jnp.int16
     board: Board
-    weather_schedule: Array
 
     # the unit_id and team_id of non-existent units are jnp.iinfo(jnp.int32).max
     units: Unit  # Unit[2, U]
@@ -159,10 +157,6 @@ class State(NamedTuple):
             buf_cfg=buf_cfg,
         )
         key, subkey = jax.random.split(key)
-        weather_schedule = jux.weather.generate_weather_schedule(
-            key=subkey,
-            env_cfg=env_cfg,
-        )
         empty_unit = Unit.empty(env_cfg)
         empty_unit = jax.tree_map(lambda x: x if isinstance(x, Array) else np.array(x), empty_unit)
         units = jax.tree_map(lambda x: x[None].repeat(buf_cfg.MAX_N_UNITS, axis=0), empty_unit)
@@ -184,7 +178,6 @@ class State(NamedTuple):
             rng_state=key,
             env_steps=State.__annotations__['env_steps'](0),
             board=board,
-            weather_schedule=weather_schedule,
             units=units,
             unit_id2idx=unit_id2idx,
             n_units=n_units,
@@ -278,7 +271,6 @@ class State(NamedTuple):
                 rng_state=jax.random.PRNGKey(seed),
                 env_steps=State.__annotations__['env_steps'](lux_state.env_steps),
                 board=Board.from_lux(lux_state.board, buf_cfg),
-                weather_schedule=jnp.array(lux_state.weather_schedule),
                 units=units,
                 n_units=n_units,
                 unit_id2idx=unit_id2idx,
@@ -407,7 +399,6 @@ class State(NamedTuple):
             env_steps=int(self.env_steps),
             env_cfg=lux_env_cfg,
             board=self.board.to_lux(lux_env_cfg, lux_factories, lux_units),
-            weather_schedule=np.array(self.weather_schedule),
             units=lux_units,
             factories=lux_factories,
             teams=lux_teams,
@@ -465,7 +456,6 @@ class State(NamedTuple):
         # self = jax.device_put(self, jax.devices("cpu")[0])
         # other = jax.device_put(other, jax.devices("cpu")[0])
         return ((self.env_steps == other.env_steps) & (self.board == other.board)
-                & jnp.array_equal(self.weather_schedule, other.weather_schedule)
                 & teams_eq(self.teams, other.teams)
                 & factories_eq(self.factories, self.n_factories, other.factories, other.n_factories)
                 & units_eq(self.units, self.n_units, other.units, other.n_units))
@@ -631,16 +621,6 @@ class State(NamedTuple):
         unit_mask = self.unit_mask
         factory_mask = self.factory_mask
 
-        # handle weather effects
-        current_weather = self.weather_schedule[real_env_steps]
-        weather_cfg = jux.weather.get_weather_cfg(self.env_cfg.WEATHER, current_weather)
-        self: 'State' = jax.lax.cond(
-            current_weather == jux.weather.Weather.MARS_QUAKE,
-            lambda s: s._mars_quake(),
-            lambda s: s,
-            self,
-        )
-
         # 1. Check for malformed actions
         failed_players = jnp.zeros((2, ), dtype=np.bool_)
 
@@ -673,12 +653,11 @@ class State(NamedTuple):
         failed_players = failed_players | failed_action
 
         # update units action queue
-        action_queue_power_cost = jnp.array([
-            self.env_cfg.ROBOTS[0].ACTION_QUEUE_POWER_COST,
-            self.env_cfg.ROBOTS[1].ACTION_QUEUE_POWER_COST,
-        ],
-                                            dtype=Unit.__annotations__['power'])
-        update_power_req = action_queue_power_cost[self.units.unit_type] * weather_cfg["power_loss_factor"]
+        action_queue_power_cost = jnp.array(
+            [unit_cfg.ACTION_QUEUE_POWER_COST for unit_cfg in self.env_cfg.ROBOTS],
+            dtype=Unit.__annotations__['power'],
+        )
+        update_power_req = action_queue_power_cost[self.units.unit_type]
         chex.assert_shape(update_power_req, (2, self.MAX_N_UNITS))
         update_queue = actions.unit_action_queue_update & unit_mask & (update_power_req <= self.units.power)
         new_power = jnp.where(update_queue, self.units.power - update_power_req, self.units.power)
@@ -714,14 +693,14 @@ class State(NamedTuple):
         )
 
         # 3. validating all actions against current state is not implemented here, but implemented in each action.
-        valid_movement, movement_power_cost = self._validate_movement_actions(unit_action, weather_cfg)
+        valid_movement, movement_power_cost = self._validate_movement_actions(unit_action)
 
         action_info = dict(
             valid_transfer=self._validate_transfer_actions(unit_action),  # bool[2, U]
             valid_pickup=self._validate_pickup_actions(unit_action),  # bool[2, U]
-            valid_dig=self._validate_dig_actions(unit_action, weather_cfg),  # bool[2, U]
-            valid_self_destruct=self._validate_self_destruct_actions(unit_action, weather_cfg),  # bool[2, U]
-            valid_factory_build=self._validate_factory_build_actions(factory_actions, weather_cfg),  # bool[2, F]
+            valid_dig=self._validate_dig_actions(unit_action),  # bool[2, U]
+            valid_self_destruct=self._validate_self_destruct_actions(unit_action),  # bool[2, U]
+            valid_factory_build=self._validate_factory_build_actions(factory_actions),  # bool[2, F]
             movement_info=dict(
                 valid=valid_movement,  # bool[2, U]
                 power_cost=movement_power_cost,  # int[2, U]
@@ -730,10 +709,10 @@ class State(NamedTuple):
         )
 
         # 4. execute actions.
-        self = self._handle_dig_actions(unit_action, weather_cfg, action_info['valid_dig'])
-        self, dead = self._handle_self_destruct_actions(unit_action, weather_cfg, action_info['valid_self_destruct'])
-        self = self._handle_factory_build_actions(factory_actions, weather_cfg, action_info['valid_factory_build'])
-        self, new_dead = self._handle_movement_actions(unit_action, weather_cfg, action_info['movement_info'], dead)
+        self = self._handle_dig_actions(unit_action, action_info['valid_dig'])
+        self, dead = self._handle_self_destruct_actions(unit_action, action_info['valid_self_destruct'])
+        self = self._handle_factory_build_actions(factory_actions, action_info['valid_factory_build'])
+        self, new_dead = self._handle_movement_actions(unit_action, action_info['movement_info'], dead)
         dead = dead | new_dead
         # Not all valid recharge actions are executed successfully, there is a `suc` indicator returned.
         self, recharge_success = self._handle_recharge_actions(unit_action, action_info['valid_recharge'])
@@ -781,7 +760,7 @@ class State(NamedTuple):
 
         # power gain
         def _gain_power(self: 'State') -> Unit:
-            new_units = self.units.gain_power(weather_cfg["power_gain_factor"], self.env_cfg.ROBOTS)
+            new_units = self.units.gain_power(self.env_cfg.ROBOTS)
             new_units = new_units._replace(power=new_units.power * self.unit_mask)
             return new_units
 
@@ -990,13 +969,13 @@ class State(NamedTuple):
         # pytype: enable=attribute-error
         # pytype: enable=unsupported-operands
 
-    def _validate_dig_actions(self: 'State', actions: UnitAction, weather_cfg: Dict[str, np.ndarray]) -> Array:
+    def _validate_dig_actions(self: 'State', actions: UnitAction) -> Array:
         unit_mask = self.unit_mask
         units = self.units
         valid = (actions.action_type == UnitActionType.DIG) & unit_mask
 
         # cannot dig if no enough power
-        power_cost = units.get_cfg("DIG_COST", self.env_cfg.ROBOTS) * weather_cfg["power_loss_factor"]
+        power_cost = units.get_cfg("DIG_COST", self.env_cfg.ROBOTS)
         valid = valid & (power_cost <= units.power)
 
         # cannot dig if on top of a factory
@@ -1009,10 +988,9 @@ class State(NamedTuple):
 
         return valid
 
-    def _handle_dig_actions(self: 'State', actions: UnitAction, weather_cfg: Dict[str, np.ndarray],
-                            valid: Array) -> 'State':
+    def _handle_dig_actions(self: 'State', actions: UnitAction, valid: Array) -> 'State':
         units = self.units
-        power_cost = units.get_cfg("DIG_COST", self.env_cfg.ROBOTS) * weather_cfg["power_loss_factor"]
+        power_cost = units.get_cfg("DIG_COST", self.env_cfg.ROBOTS)
         x, y = self.units.pos.x, self.units.pos.y
 
         # deduce power
@@ -1053,23 +1031,13 @@ class State(NamedTuple):
         )
         return new_self
 
-    def _validate_self_destruct_actions(
-        self: 'State',
-        actions: UnitAction,
-        weather_cfg: Dict[str, np.ndarray],
-    ) -> Array:
+    def _validate_self_destruct_actions(self: 'State', actions: UnitAction) -> Array:
         power_cost = self.units.get_cfg("SELF_DESTRUCT_COST", self.env_cfg.ROBOTS)
-        power_cost = power_cost * weather_cfg["power_loss_factor"]
         valid = (actions.action_type == UnitActionType.SELF_DESTRUCT) & (self.units.power >= power_cost)
 
         return valid
 
-    def _handle_self_destruct_actions(
-        self,
-        actions: UnitAction,
-        weather_cfg: Dict[str, Union[int, float]],
-        valid: Array,
-    ) -> Tuple['State', Array]:
+    def _handle_self_destruct_actions(self, actions: UnitAction, valid: Array) -> Tuple['State', Array]:
 
         # bool indicator of dead units
         dead = valid
@@ -1087,15 +1055,14 @@ class State(NamedTuple):
 
         return self, dead
 
-    def _validate_factory_build_actions(self: 'State', factory_actions: Array,
-                                        weather_cfg: Dict[str, Union[int, float]]) -> Array:
+    def _validate_factory_build_actions(self: 'State', factory_actions: Array) -> Array:
         factory_mask = self.factory_mask
         is_build_heavy = (factory_actions == FactoryAction.BUILD_HEAVY) & factory_mask
         is_build_light = (factory_actions == FactoryAction.BUILD_LIGHT) & factory_mask
 
         # check if power is enough
-        light_power_cost = self.env_cfg.ROBOTS[UnitType.LIGHT].POWER_COST * weather_cfg["power_loss_factor"]
-        heavy_power_cost = self.env_cfg.ROBOTS[UnitType.HEAVY].POWER_COST * weather_cfg["power_loss_factor"]
+        light_power_cost = self.env_cfg.ROBOTS[UnitType.LIGHT].POWER_COST
+        heavy_power_cost = self.env_cfg.ROBOTS[UnitType.HEAVY].POWER_COST
         is_build_light = is_build_light & (self.factories.power >= light_power_cost)
         is_build_heavy = is_build_heavy & (self.factories.power >= heavy_power_cost)
 
@@ -1109,16 +1076,15 @@ class State(NamedTuple):
 
         return valid
 
-    def _handle_factory_build_actions(self: 'State', factory_actions: Array, weather_cfg: Dict[str, Union[int, float]],
-                                      valid: Array) -> 'State':
+    def _handle_factory_build_actions(self: 'State', factory_actions: Array, valid: Array) -> 'State':
 
         # 1. double check if build action is valid. Because robots may pickup resources from factory
-        valid = valid & self._validate_factory_build_actions(factory_actions, weather_cfg)
+        valid = valid & self._validate_factory_build_actions(factory_actions)
 
         is_build_heavy = valid & (factory_actions == FactoryAction.BUILD_HEAVY)
         is_build_light = valid & (factory_actions == FactoryAction.BUILD_LIGHT)
-        light_power_cost = self.env_cfg.ROBOTS[UnitType.LIGHT].POWER_COST * weather_cfg["power_loss_factor"]
-        heavy_power_cost = self.env_cfg.ROBOTS[UnitType.HEAVY].POWER_COST * weather_cfg["power_loss_factor"]
+        light_power_cost = self.env_cfg.ROBOTS[UnitType.LIGHT].POWER_COST
+        heavy_power_cost = self.env_cfg.ROBOTS[UnitType.HEAVY].POWER_COST
         light_metal_cost = self.env_cfg.ROBOTS[UnitType.LIGHT].METAL_COST
         heavy_metal_cost = self.env_cfg.ROBOTS[UnitType.HEAVY].METAL_COST
 
@@ -1164,8 +1130,7 @@ class State(NamedTuple):
             global_id=self.global_id + n_new_units.sum(dtype=n_new_units.dtype),
         )
 
-    def _validate_movement_actions(self, actions: UnitAction,
-                                   weather_cfg: Dict[str, Union[int, float]]) -> Tuple[Array, Array]:
+    def _validate_movement_actions(self, actions: UnitAction) -> Tuple[Array, Array]:
         unit_mask = self.unit_mask
         player_id = jnp.array([0, 1])[..., None].astype(Team.__annotations__['team_id'])
 
@@ -1188,7 +1153,6 @@ class State(NamedTuple):
         # can't move if power is not enough
         target_rubble = self.board.rubble[new_pos.x, new_pos.y]
         power_cost = self.units.move_power_cost(target_rubble, self.env_cfg.ROBOTS)
-        power_cost = power_cost * weather_cfg["power_loss_factor"]
         is_moving = is_moving & (power_cost <= self.units.power)
 
         # moving to center is always considered as success
@@ -1196,8 +1160,8 @@ class State(NamedTuple):
                               (actions.direction == Direction.CENTER)) & unit_mask)
         return valid, power_cost
 
-    def _handle_movement_actions(self, actions: UnitAction, weather_cfg: Dict[str, Union[int, float]],
-                                 movement_info: Dict[str, Array], already_dead: Array) -> Tuple['State', Array]:
+    def _handle_movement_actions(self, actions: UnitAction, movement_info: Dict[str, Array],
+                                 already_dead: Array) -> Tuple['State', Array]:
         valid, power_cost = movement_info['valid'], movement_info['power_cost']
 
         # move to center is not considered as moving

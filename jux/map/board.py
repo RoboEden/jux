@@ -4,9 +4,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-from luxai2022.env import Factory as LuxFactory
-from luxai2022.env import Unit as LuxUnit
-from luxai2022.map.board import Board as LuxBoard
+from luxai_s2.env import Factory as LuxFactory
+from luxai_s2.env import Unit as LuxUnit
+from luxai_s2.map.board import Board as LuxBoard
 
 from jux.config import EnvConfig, JuxBufferConfig, LuxEnvConfig
 from jux.map.position import Position

@@ -4,10 +4,10 @@ from typing import Dict, NamedTuple, Tuple, Union
 import jax
 import jax.numpy as jnp
 from jax import Array, lax
-from luxai2022.config import EnvConfig as LuxEnvConfig
-from luxai2022.team import Team as LuxTeam
-from luxai2022.unit import Unit as LuxUnit
-from luxai2022.unit import UnitType as LuxUnitType
+from luxai_s2.config import EnvConfig as LuxEnvConfig
+from luxai_s2.team import Team as LuxTeam
+from luxai_s2.unit import Unit as LuxUnit
+from luxai_s2.unit import UnitType as LuxUnitType
 
 from jux.actions import ActionQueue, UnitAction
 from jux.config import EnvConfig, UnitConfig
@@ -130,18 +130,17 @@ class Unit(NamedTuple):
 
         act = self.action_queue.peek()
         not_empty = ~self.action_queue.is_empty()
-        repeat_minus_one = (act.repeat > 0) & success & not_empty
-        pop_only = (act.repeat == 0) & success & not_empty
-        pop_and_push_back = (act.repeat < 0) & success & not_empty
+        n_minus_one = (act.n > 1) & success & not_empty
+        pop_only = (act.n <= 1) & ~act.repeat & success & not_empty
+        pop_and_push_back = (act.n <= 1) & act.repeat & success & not_empty
 
         data = jax.tree_map(
             lambda queue, a: queue.at[self.action_queue.rear].set(a),
             self.action_queue.data,
-            act,
+            act._replace(n=jnp.where(pop_and_push_back, 1, act.n)),
         )
-        repeat = data.repeat.at[self.action_queue.front]\
-                            .add(-repeat_minus_one.astype(data.repeat.dtype))
-        data = data._replace(repeat=repeat)
+        n = data.n.at[self.action_queue.front].add(-n_minus_one.astype(data.n.dtype))
+        data = data._replace(n=n)
 
         front = jnp.where(
             pop_only | pop_and_push_back,
@@ -175,7 +174,7 @@ class Unit(NamedTuple):
     def move_power_cost(self, rubble_at_target: int, unit_cfgs: Tuple[UnitConfig, UnitConfig]):
         move_cost = self.get_cfg("MOVE_COST", unit_cfgs)
         rubble_movement_cost = self.get_cfg("RUBBLE_MOVEMENT_COST", unit_cfgs)
-        return move_cost + rubble_movement_cost * rubble_at_target
+        return move_cost + jnp.floor(rubble_movement_cost * rubble_at_target).astype(move_cost.dtype)
 
     def add_resource(
         self,
@@ -235,10 +234,10 @@ class Unit(NamedTuple):
         )
         return new_unit, transfer_amount
 
-    def gain_power(self, power_gain_factor, unit_cfgs: Tuple[UnitConfig, UnitConfig]):
+    def gain_power(self, unit_cfgs: Tuple[UnitConfig, UnitConfig]):
         charge = self.get_cfg("CHARGE", unit_cfgs)
         battery_capacity = self.get_cfg("BATTERY_CAPACITY", unit_cfgs)
-        new_power = self.power + jnp.ceil(charge * power_gain_factor).astype(jnp.int32)
+        new_power = self.power + charge
         new_power = jnp.minimum(new_power, battery_capacity)
         return self._replace(power=new_power)
 

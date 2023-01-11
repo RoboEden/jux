@@ -2,8 +2,8 @@ from typing import List
 
 import chex
 import numpy as np
-from luxai2022 import actions as lux_actions
-from luxai2022.actions import Action as LuxAction
+from luxai_s2 import actions as lux_actions
+from luxai_s2.actions import Action as LuxAction
 
 import jux.utils
 from jux.actions import ActionQueue, FactoryAction, JuxAction, UnitAction
@@ -73,8 +73,8 @@ class TestActionQueue(chex.TestCase):
 class TestJuxAction():
 
     def test_to_from_lux_torch(self):
-        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45731509.json")
-        while env.env_steps < 100:
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45885903.json")
+        while env.env_steps < 30:
             act = next(actions)
             env.step(act)
 

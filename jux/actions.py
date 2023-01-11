@@ -5,12 +5,12 @@ from typing import Any, Dict, List, NamedTuple, Tuple, Union
 import chex
 import jax
 import jax.numpy as jnp
-import luxai2022.actions as lux_actions
+import luxai_s2.actions as lux_actions
 import numpy as np
 from jax import Array
-from luxai2022.actions import Action as LuxAction
-from luxai2022.actions import format_action_vec
-from luxai2022.unit import UnitType as LuxUnitType
+from luxai_s2.actions import Action as LuxAction
+from luxai_s2.actions import format_action_vec
+from luxai_s2.unit import UnitType as LuxUnitType
 
 import jux.torch
 import jux.tree_util
@@ -65,15 +65,17 @@ class UnitAction(NamedTuple):
     resource_type: jnp.int8 = jnp.int8(0)
     amount: jnp.int16 = jnp.int16(0)
     repeat: jnp.int8 = jnp.int8(0)
+    n: jnp.int16 = jnp.int16(0)
 
     @classmethod
     def new(
         cls,
         action_type: UnitActionType,
-        direction: Union[Direction, int],
-        resource_type: Union[ResourceType, int],
-        amount: jnp.int16,
-        repeat: jnp.int8,
+        direction: Union[Direction, int] = 0,
+        resource_type: Union[ResourceType, int] = 0,
+        amount: jnp.int16 = 0,
+        repeat: jnp.int8 = 0,
+        n: jnp.int16 = 0,
     ) -> "UnitAction":
         return UnitAction(
             jnp.int8(action_type),
@@ -81,30 +83,41 @@ class UnitAction(NamedTuple):
             jnp.int8(resource_type),
             jnp.int16(amount),
             jnp.int8(repeat),
+            jnp.int16(n),
         )
 
     @classmethod
-    def move(cls, direction: Direction, repeat: int = 0) -> "UnitAction":
-        return cls.new(UnitActionType.MOVE, direction, 0, 0, repeat)
+    def move(cls, direction: Direction, repeat: int = 0, n: int = 1) -> "UnitAction":
+        return cls.new(UnitActionType.MOVE, direction=direction, repeat=repeat, n=n)
 
     @classmethod
-    def transfer(cls, direction: Direction, resource: ResourceType, amount: int, repeat: int = 0) -> "UnitAction":
-        return cls.new(UnitActionType.TRANSFER, direction, resource, amount, repeat)
+    def transfer(cls,
+                 direction: Direction,
+                 resource_type: ResourceType,
+                 amount: int,
+                 repeat: int = 0,
+                 n: int = 1) -> "UnitAction":
+        return cls.new(UnitActionType.TRANSFER,
+                       direction,
+                       resource_type=resource_type,
+                       amount=amount,
+                       repeat=repeat,
+                       n=n)
 
     @classmethod
-    def pickup(cls, resource: ResourceType, amount: int, repeat: int = 0) -> "UnitAction":
-        return cls.new(UnitActionType.PICKUP, 0, resource, amount, repeat)
+    def pickup(cls, resource_type: ResourceType, amount: int, repeat: int = 0, n: int = 1) -> "UnitAction":
+        return cls.new(UnitActionType.PICKUP, resource_type=resource_type, amount=amount, repeat=repeat, n=n)
 
     @classmethod
-    def dig(cls, repeat: int = 0) -> "UnitAction":
-        return cls.new(UnitActionType.DIG, 0, 0, 0, repeat)
+    def dig(cls, repeat: int = 0, n: int = 1) -> "UnitAction":
+        return cls.new(UnitActionType.DIG, repeat=repeat, n=n)
 
     @classmethod
-    def self_destruct(cls, repeat: int = 0) -> "UnitAction":
-        return cls.new(UnitActionType.SELF_DESTRUCT, 0, 0, 0, repeat)
+    def self_destruct(cls, repeat: int = 0, n: int = 1) -> "UnitAction":
+        return cls.new(UnitActionType.SELF_DESTRUCT, repeat=repeat, n=n)
 
     @classmethod
-    def recharge(cls, amount: int, repeat: int = 0) -> "UnitAction":
+    def recharge(cls, amount: int, repeat: int = 0, n: int = 1) -> "UnitAction":
         """Recharge the unit's battery until the given amount.
 
         Args:
@@ -114,16 +127,16 @@ class UnitAction(NamedTuple):
         Returns:
             UnitAction: a recharge action
         """
-        return cls.new(UnitActionType.RECHARGE, 0, 0, amount, repeat)
+        return cls.new(UnitActionType.RECHARGE, amount=amount, repeat=repeat, n=n)
 
     @classmethod
     def do_nothing(cls) -> "UnitAction":
-        return cls.new(UnitActionType.DO_NOTHING, 0, 0, 0, 0)
+        return cls.new(UnitActionType.DO_NOTHING)
 
     @classmethod
     def from_lux(cls, lux_action: LuxAction) -> "UnitAction":
         code: np.ndarray = lux_action.state_dict()
-        assert code.shape == (5, ), f"Invalid UnitAction action code: {code}"
+        assert code.shape == (6, ), f"Invalid UnitAction action code: {code}"
         return cls.new(*code)
 
     def to_lux(self) -> LuxAction:
@@ -134,6 +147,7 @@ class UnitAction(NamedTuple):
                 int(self.resource_type),
                 int(self.amount),
                 int(self.repeat),
+                int(self.n),
             ]))
 
     def __eq__(self, __o: object) -> bool:
@@ -142,7 +156,8 @@ class UnitAction(NamedTuple):
             (self.direction == __o.direction) and \
             (self.resource_type == __o.resource_type) and \
             (self.amount == __o.amount) and \
-            (self.repeat == __o.repeat)
+            (self.repeat == __o.repeat) and \
+            (self.n == __o.n)
 
     def is_valid(self, max_transfer_amount) -> bool:
         return (
@@ -349,6 +364,7 @@ class JuxAction(NamedTuple):
             resource_type=np.empty(batch_shape, dtype=UnitAction.__annotations__['resource_type'].dtype),
             amount=np.empty(batch_shape, dtype=UnitAction.__annotations__['amount'].dtype),
             repeat=np.empty(batch_shape, dtype=UnitAction.__annotations__['repeat'].dtype),
+            n=np.empty(batch_shape, dtype=UnitAction.__annotations__['n'].dtype),
         )
         unit_action_queue_count = np.zeros((2, state.MAX_N_UNITS), dtype=ActionQueue.__annotations__['count'])
         unit_action_queue_update = np.zeros((2, state.MAX_N_UNITS), dtype=np.bool_)
@@ -394,7 +410,7 @@ class JuxAction(NamedTuple):
         )
 
     def to_lux(self: "JuxAction", state) -> Dict[str, Dict[str, Union[int, Array]]]:
-        """Convert `JuxAction` to dict format that can be passed into `LuxAI2022` object.
+        """Convert `JuxAction` to dict format that can be passed into `LuxAI_S2` object.
 
         Args:
             self (JuxAction): self
@@ -516,10 +532,10 @@ class JuxAction(NamedTuple):
 
 def bid_action_from_lux(lux_bid_action: Dict[str, Dict[str, Any]]) -> Tuple[Array, Array]:
     '''
-    Convert a `LuxAI2022` bid action to a format that `JuxEnv.step_bid()` can receive.
+    Convert a `LuxAI_S2` bid action to a format that `JuxEnv.step_bid()` can receive.
 
     Args:
-        lux_bid_action (Dict[str, Dict[str, int]]): a bid action from `LuxAI2022`. In format of:
+        lux_bid_action (Dict[str, Dict[str, int]]): a bid action from `LuxAI_S2`. In format of:
         ```
         {
             'player_0': {
@@ -555,14 +571,14 @@ def bid_action_from_lux(lux_bid_action: Dict[str, Dict[str, Any]]) -> Tuple[Arra
 
 def bid_action_to_lux(bid: Array, faction: Array) -> Dict[str, Dict[str, int]]:
     '''
-    Convert a `JuxEnv.step_bid()` action to a format that `LuxAI2022` can receive.
+    Convert a `JuxEnv.step_bid()` action to a format that `LuxAI_S2` can receive.
 
     Args:
         bid (Array): int[2], bid amount for each player.
         faction (Array): int[2], faction for each player.
 
     Returns:
-        Dict[str, Dict[str, int]]: a `LuxAI2022` bid action. In format of:
+        Dict[str, Dict[str, int]]: a `LuxAI_S2` bid action. In format of:
         ```
         {
             'player_0': {
@@ -589,11 +605,11 @@ def bid_action_to_lux(bid: Array, faction: Array) -> Dict[str, Dict[str, int]]:
 
 
 def factory_placement_action_from_lux(lux_act: Dict[str, Dict[str, Any]]) -> Tuple[Array, Array, Array]:
-    '''Convert a `LuxAI2022` factory placement action to a format that `JuxEnv.step_factory_placement()` can receive.
+    '''Convert a `LuxAI_S2` factory placement action to a format that `JuxEnv.step_factory_placement()` can receive.
     See `JuxEnv.step_factory_placement()` for more details.
 
     Args:
-        lux_act (Dict[str, Dict[str, Any]]): a `LuxAI2022` factory placement action. In format of:
+        lux_act (Dict[str, Dict[str, Any]]): a `LuxAI_S2` factory placement action. In format of:
         ```
         {
             'player_0': {
@@ -635,7 +651,7 @@ def factory_placement_action_from_lux(lux_act: Dict[str, Dict[str, Any]]) -> Tup
 
 
 def factory_placement_action_to_lux(spawn, water, metal) -> Dict[str, Dict[str, Any]]:
-    """Convert factory placement action to LuxAI2022's action format. For more details about
+    """Convert factory placement action to LuxAI_S2's action format. For more details about
     input arguments, see `JuxEnv.step_factory_placement()`.
 
     Args:

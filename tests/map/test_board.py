@@ -1,6 +1,6 @@
 import chex
 import numpy as np
-from luxai2022.env import LuxAI2022
+from luxai_s2.env import LuxAI_S2
 
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.map.board import Board, LuxBoard
@@ -22,7 +22,7 @@ class TestBoard(chex.TestCase):
     def test_from_to_lux(self):
         buf_cfg = JuxBufferConfig()
 
-        lux = LuxAI2022()
+        lux = LuxAI_S2()
         lux.reset()
         lux.step(dict(
             player_0=dict(faction='AlphaStrike', bid=0),

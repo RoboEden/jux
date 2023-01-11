@@ -2,9 +2,8 @@ import chex
 import jax
 import numpy as np
 from jax import numpy as jnp
-from luxai2022.map_generator.symnoise import \
-    SymmetricNoise as LuxSymmetricNoise
-from luxai2022.map_generator.symnoise import symmetrize as lux_symmetrize
+from luxai_s2.map_generator.symnoise import SymmetricNoise as LuxSymmetricNoise
+from luxai_s2.map_generator.symnoise import symmetrize as lux_symmetrize
 
 from jux.map_generator.symnoise import SymmetryNoise, SymmetryType, symmetrize
 

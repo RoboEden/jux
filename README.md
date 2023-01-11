@@ -12,24 +12,27 @@ $ conda install cudnn
 ```
 For docker users, you can use the [NVIDIA CUDA docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda) or the [PyTorch docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch), which has all of them ready and compatible with each other.
 
+### Install JAX
+Please follow the [official installation guide](https://github.com/google/jax#installation) to install JAX. Our implementation is tested on `'jax[cuda]~=0.3.25'`.
+
+
 ### Install JUX
-Upgrade your pip and install JUX.
+Finally, upgrade your pip and install JUX.
 ```console
 $ pip install --upgrade pip
-$ pip install juxai2022 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+$ pip install juxai-s2
 ```
-The extra URL `https://storage.googleapis.com/...` is needed for JAX to be installed correctly.
 
 ## Usage
- See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai2022==1.1.4`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI2022 may process them differently.
+ See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai_s2==1.1.4`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI_S2 may process them differently.
 
 ## Performance
 JUX maps all game logic to array operators in JAX so that we can harvest the computational power of modern GPUs and support tons of environments running in parallel. We benchmarked JUX on several different GPUs, and increased the throughput by hundreds to thousands of times, compared with the original single-thread Python implementation.
 
-LuxAI2022 is a game with a dynamic number of units, making it hard to be accelerated by JAX, because `jax.jit()` only supports arrays with static shapes. As a workaround, we allocate a large buffer with static length to store units. The buffer length (`buf_cfg.MAX_N_UNITS`) greatly affects the performance. Theoretically, no player can build more than 1500 units under current game configs, so `MAX_N_UNITS=1500` is a safe choice. However, we found that no player builds more than 200 units by watching game replays, so `MAX_N_UNITS=200` is a practical choice.
+LuxAI_S2 is a game with a dynamic number of units, making it hard to be accelerated by JAX, because `jax.jit()` only supports arrays with static shapes. As a workaround, we allocate a large buffer with static length to store units. The buffer length (`buf_cfg.MAX_N_UNITS`) greatly affects the performance. Theoretically, no player can build more than 1500 units under current game configs, so `MAX_N_UNITS=1500` is a safe choice. However, we found that no player builds more than 200 units by watching game replays, so `MAX_N_UNITS=200` is a practical choice.
 
 ### Relative Throughput
-Here, we report the relative throughput over the original Python implementation (`luxai2022==1.1.3`), on several different GPUs with different `MAX_N_UNITS` settings. The original single-thread Python implementation running on an 8255C CPU serves as the baseline. We can observe that the throughput is proportional to GPU memory bandwidth because the game logic is mostly memory-bound, not compute-bound. Byte-access operators take a large portion of the game logic in JUX implementation.
+Here, we report the relative throughput over the original Python implementation (`luxai_s2==1.1.3`), on several different GPUs with different `MAX_N_UNITS` settings. The original single-thread Python implementation running on an 8255C CPU serves as the baseline. We can observe that the throughput is proportional to GPU memory bandwidth because the game logic is mostly memory-bound, not compute-bound. Byte-access operators take a large portion of the game logic in JUX implementation.
 
 | Relative Throughput  |                    |            |           |           |           |           |           |            |
 |:-------------------- | ------------------:| ----------:| ---------:| ---------:| ---------:| ---------:| ---------:| ----------:|

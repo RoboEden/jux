@@ -2,8 +2,8 @@ from typing import Dict, NamedTuple, Tuple
 
 import jax
 from jax import numpy as jnp
-from luxai2022.factory import Factory as LuxFactory
-from luxai2022.team import Team as LuxTeam
+from luxai_s2.factory import Factory as LuxFactory
+from luxai_s2.team import Team as LuxTeam
 
 from jux.config import EnvConfig
 from jux.map.position import Position, direct2delta_xy

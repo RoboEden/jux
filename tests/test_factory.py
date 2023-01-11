@@ -1,8 +1,8 @@
 import chex
 from jax import Array
 from jax import numpy as jnp
-from luxai2022.team import FactionTypes as LuxFactionTypes
-from luxai2022.team import Team as LuxTeam
+from luxai_s2.team import FactionTypes as LuxFactionTypes
+from luxai_s2.team import Team as LuxTeam
 
 from jux.factory import Factory, LuxFactory, LuxTeam
 from jux.map.position import Position

@@ -3,7 +3,7 @@ from typing import NamedTuple, Union
 
 import jax.numpy as jnp
 from jax import Array
-from luxai2022.unit import UnitCargo as LuxUnitCargo
+from luxai_s2.unit import UnitCargo as LuxUnitCargo
 
 
 class ResourceType(IntEnum):
@@ -55,7 +55,7 @@ class UnitCargo(NamedTuple):
                      resource: ResourceType,
                      amount: int,
                      cargo_space: int = jnp.iinfo(jnp.int32).max // 2) -> Union[int, Array]:
-        '''JUX implementation for luxai2022.unit.Unit.add_resource and luxai2022.factory.Factory.add_resource.
+        '''JUX implementation for luxai_s2.unit.Unit.add_resource and luxai_s2.factory.Factory.add_resource.
 
         For Unit, cargo_space should be unit.cargo_space.
         For Factory, cargo_space should be inf (here is int32.max//2).
@@ -71,7 +71,7 @@ class UnitCargo(NamedTuple):
         return new_cargo, transfer_amount
 
     def sub_resource(self, resource: ResourceType, amount: int) -> Union[int, Array]:
-        '''JUX implementation for luxai2022.unit.Unit.sub_resource and luxai2022.factory.Factory.sub_resource.
+        '''JUX implementation for luxai_s2.unit.Unit.sub_resource and luxai_s2.factory.Factory.sub_resource.
 
         Returns:
             int: the amount of resource that really transferred.

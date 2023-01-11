@@ -4,7 +4,7 @@ from typing import Dict, Tuple
 import jax
 import jax.numpy as jnp
 from jax import Array
-from luxai2022 import LuxAI2022
+from luxai_s2 import LuxAI_S2
 
 from jux.actions import JuxAction
 from jux.config import EnvConfig, JuxBufferConfig
@@ -17,7 +17,7 @@ class JuxEnv:
     def __init__(self, env_cfg=EnvConfig(), buf_cfg=JuxBufferConfig()) -> None:
         self.env_cfg = env_cfg
         self.buf_cfg = buf_cfg
-        self._dummy_env = LuxAI2022()  # for rendering
+        self._dummy_env = LuxAI_S2()  # for rendering
 
     def __hash__(self) -> int:
         return hash((JuxEnv, self.env_cfg, self.buf_cfg))
@@ -160,7 +160,7 @@ class JuxEnv:
 
         Args:
             state (State): The current game state.
-            mode ('human' | 'rgb_array'): The mode to render. See `LuxAI2022.render` for details.
+            mode ('human' | 'rgb_array'): The mode to render. See `LuxAI_S2.render` for details.
         """
         assert state.n_units.shape == (2, ), "Only support rendering for single environment."
         self._dummy_env.state = state.to_lux()
@@ -170,12 +170,12 @@ class JuxEnv:
         return self._dummy_env.close()
 
     @staticmethod
-    def from_lux(lux_env: LuxAI2022, buf_cfg=JuxBufferConfig()) -> Tuple['JuxEnv', 'State']:
+    def from_lux(lux_env: LuxAI_S2, buf_cfg=JuxBufferConfig()) -> Tuple['JuxEnv', 'State']:
         """
-        Create a `JuxEnv` from a `LuxAI2022` environment.
+        Create a `JuxEnv` from a `LuxAI_S2` environment.
 
         Args:
-            env (LuxAI2022): The LuxAI2022 environment.
+            env (LuxAI_S2): The LuxAI_S2 environment.
             buf_cfg (JuxBufferConfig): The buffer configuration.
 
         Returns:

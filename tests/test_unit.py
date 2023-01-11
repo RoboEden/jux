@@ -1,7 +1,7 @@
 import chex
 import jax
 from jax import numpy as jnp
-from luxai2022.team import FactionTypes as LuxFactionTypes
+from luxai_s2.team import FactionTypes as LuxFactionTypes
 
 from jux.config import EnvConfig
 from jux.team import LuxTeam

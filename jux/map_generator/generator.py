@@ -7,8 +7,8 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array, lax
 from jax.numpy.fft import fft
-from luxai2022.map_generator import GameMap as LuxGameMap
-from luxai2022.map_generator.visualize import viz as lux_viz
+from luxai_s2.map_generator import GameMap as LuxGameMap
+from luxai_s2.map_generator.visualize import viz as lux_viz
 
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.map_generator.flood import boundary_sum, component_sum, flood_fill

@@ -3,7 +3,7 @@
     build-backend = "setuptools.build_meta"
 
 [project]
-    name = "juxai2022"
+    name = "juxai-s2"
     description = "JUX is a jax-accelerated engine for Lux-2022."
     requires-python = ">=3.7, <3.11"
     license = { file = "LICENSE" }
@@ -12,7 +12,7 @@
         { name = "Qimai Li", email = "qimaili@chaocanshu.ai" },
         { name = "Yuhao Jiang", email = "yuhaojiang@chaocanshu.ai" },
     ]
-    keywords = ["JAX", "LuxAI2022"]
+    keywords = ["JAX", "LuxAI-S2"]
     classifiers = [
         "Programming Language :: Python :: 3",
         "Environment :: GPU :: NVIDIA CUDA",
@@ -21,7 +21,7 @@
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ]
     dependencies = [
-        "luxai2022==1.1.4",
+        "luxai-s2==2.0.0",
         "jax[cuda]~=0.3.25",
         "chex",
     ]

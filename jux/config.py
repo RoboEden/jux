@@ -3,11 +3,8 @@ from copy import copy
 from typing import Any, Dict, NamedTuple, Tuple
 
 import jax
-from luxai2022.config import EnvConfig as LuxEnvConfig
-from luxai2022.config import UnitConfig as LuxUnitConfig
-
-import jux
-from jux.weather import WeatherConfig
+from luxai_s2.config import EnvConfig as LuxEnvConfig
+from luxai_s2.config import UnitConfig as LuxUnitConfig
 
 
 class UnitConfig(NamedTuple):
@@ -98,7 +95,7 @@ class EnvConfig(NamedTuple):
             BATTERY_CAPACITY=150,
             CHARGE=1,
             MOVE_COST=1,
-            RUBBLE_MOVEMENT_COST=0,
+            RUBBLE_MOVEMENT_COST=0.1,
             DIG_COST=5,
             SELF_DESTRUCT_COST=5,
             DIG_RUBBLE_REMOVED=2,
@@ -117,42 +114,13 @@ class EnvConfig(NamedTuple):
             CHARGE=10,
             MOVE_COST=20,
             RUBBLE_MOVEMENT_COST=1,
-            DIG_COST=100,
+            DIG_COST=45,
             SELF_DESTRUCT_COST=100,
             DIG_RUBBLE_REMOVED=20,
             DIG_RESOURCE_GAIN=20,
             DIG_LICHEN_REMOVED=100,
             RUBBLE_AFTER_DESTRUCTION=10,
             ACTION_QUEUE_POWER_COST=10,
-        ),
-    )
-
-    #### Weather ####
-    # WEATHER_ID_TO_NAME: list = dataclasses.field(
-    #     default_factory=lambda: ["NONE", "MARS_QUAKE", "COLD_SNAP", "DUST_STORM", "SOLAR_FLARE"])
-    NUM_WEATHER_EVENTS_RANGE: Tuple[int, int] = (3, 5)
-    WEATHER: WeatherConfig = WeatherConfig(  # pytype: disable=annotation-type-mismatch
-        # Weather.NONE
-        NONE=(),
-        # Weather.MARS_QUAKE
-        MARS_QUAKE=jux.weather.MarsQuake(TIME_RANGE=(1, 5)),
-        # Weather.COLD_SNAP
-        COLD_SNAP=jux.weather.ColdSnap(
-            # power multiplier required per robot action. 2 -> requires 2x as much power to execute the same action
-            POWER_CONSUMPTION=2,  # must be integer
-            TIME_RANGE=(10, 30),
-        ),
-        # Weather.DUST_STORM
-        DUST_STORM=jux.weather.DustStorm(
-            # power gain multiplier. .5 -> gain .5x as much power per turn
-            POWER_GAIN=0.5,
-            TIME_RANGE=(10, 30),
-        ),
-        # Weather.SOLAR_FLARE
-        SOLAR_FLARE=jux.weather.SolarFlare(
-            # power gain multiplier. 2 -> gain 2x as much power per turn
-            POWER_GAIN=2.0,
-            TIME_RANGE=(10, 30),
         ),
     )
 
@@ -165,11 +133,7 @@ class EnvConfig(NamedTuple):
             UnitConfig.from_lux(lux_env_config.ROBOTS['HEAVY']),
         )
 
-        lux_env_config.NUM_WEATHER_EVENTS_RANGE = tuple(lux_env_config.NUM_WEATHER_EVENTS_RANGE)
-        lux_env_config.WEATHER = WeatherConfig.from_lux(lux_env_config.WEATHER)
-
         lux_env_config = dataclasses.asdict(lux_env_config)
-        lux_env_config.pop('WEATHER_ID_TO_NAME')
         return EnvConfig(**lux_env_config)
 
     def to_lux(self) -> LuxEnvConfig:
@@ -180,9 +144,6 @@ class EnvConfig(NamedTuple):
             LIGHT=self['ROBOTS'][0].to_lux(),
             HEAVY=self['ROBOTS'][1].to_lux(),
         )
-        self['WEATHER'] = self['WEATHER'].to_lux()
-        self['NUM_WEATHER_EVENTS_RANGE'] = list(self['NUM_WEATHER_EVENTS_RANGE'])
-        self['WEATHER_ID_TO_NAME'] = ["NONE"] + list(self['WEATHER'].keys())
 
         return LuxEnvConfig(**self)
 

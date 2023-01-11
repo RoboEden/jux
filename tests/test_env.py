@@ -2,7 +2,8 @@ import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
-from luxai2022 import LuxAI2022
+import pytest
+from luxai_s2 import LuxAI_S2
 from rich import print
 
 import jux.actions
@@ -77,6 +78,7 @@ class TestJuxEnv:
             assert jux_rewards[0] == lux_rewards['player_0']
             assert jux_rewards[1] == lux_rewards['player_1']
 
+    @pytest.mark.skip(reason="no way of currently testing this without v2.0.0 replay")
     def test_step_late_game(self):
         chex.clear_trace_counter()
         episode_list = [
