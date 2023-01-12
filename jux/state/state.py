@@ -1008,6 +1008,8 @@ class State(NamedTuple):
         dig_lichen_removed = units.get_cfg("DIG_LICHEN_REMOVED", self.env_cfg.ROBOTS).astype(self.board.lichen.dtype)
         new_lichen = self.board.lichen.at[x, y].add(-dig_lichen_removed * dig_lichen)
         new_lichen = jnp.maximum(new_lichen, 0)
+        # When digging out last lichen, then rubble equal to `DIG_RUBBLE_REMOVED` is added to the tile
+        new_rubble = new_rubble.at[x, y].add(jnp.where(dig_lichen & (new_lichen[x, y] == 0), dig_rubble_removed, 0))
 
         # resources
         add_resource = jax.vmap(Unit.add_resource, in_axes=(0, None, 0, None))

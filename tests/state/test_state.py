@@ -262,6 +262,7 @@ class TestEarlyStageState(chex.TestCase):
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
     def test_step_bid(self):
+        chex.clear_trace_counter()
         state_step_bid = self.variant(State._step_bid)
         for seed in range(10):
             random.seed(seed)
@@ -293,6 +294,7 @@ class TestEarlyStageState(chex.TestCase):
             assert state___eq___jitted(jux_state, lux_state)
 
     def test_step_bid_2(self):
+        chex.clear_trace_counter()
         state_step_bid = jax.jit(State._step_bid)
         bids = [
             [0, 0],
@@ -328,6 +330,7 @@ class TestEarlyStageState(chex.TestCase):
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
     def test_step_factory_placement(self):
+        chex.clear_trace_counter()
         state_step_factory_placement = self.variant(State._step_factory_placement)
         for seed in range(10):
             random.seed(seed)
