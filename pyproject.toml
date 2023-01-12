@@ -22,7 +22,7 @@
     ]
     dependencies = [
         "luxai-s2==2.0.0",
-        "jax[cuda]~=0.3.25",
+        "jax[cuda]",
         "chex",
     ]
     dynamic = ["version"]

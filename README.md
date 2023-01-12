@@ -13,7 +13,7 @@ $ conda install cudnn
 For docker users, you can use the [NVIDIA CUDA docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda) or the [PyTorch docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch), which has all of them ready and compatible with each other.
 
 ### Install JAX
-Please follow the [official installation guide](https://github.com/google/jax#installation) to install JAX. Our implementation is tested on `'jax[cuda]~=0.3.25'`.
+Please follow the [official installation guide](https://github.com/google/jax#installation) to install JAX.
 
 
 ### Install JUX
