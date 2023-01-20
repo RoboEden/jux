@@ -73,7 +73,7 @@ class TestActionQueue(chex.TestCase):
 class TestJuxAction():
 
     def test_to_from_lux_torch(self):
-        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45885903.json")
+        env, actions = jux.utils.load_replay("tests/replay2.0_0.json.gz")
         while env.env_steps < 30:
             act = next(actions)
             env.step(act)

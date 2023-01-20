@@ -392,10 +392,10 @@ class State(NamedTuple):
             'player_1': _to_lux_factories(lux_factories[1], n_factories[1]),
         }
 
-        seed = self.seed if self.seed != INT32_MAX else None
+        seed = int(self.seed) if self.seed != INT32_MAX else None
         return LuxState(
-            seed_rng=np.random.RandomState(self.seed),
-            seed=int(seed),
+            seed_rng=np.random.RandomState(seed),
+            seed=seed,
             env_steps=int(self.env_steps),
             env_cfg=lux_env_cfg,
             board=self.board.to_lux(lux_env_cfg, lux_factories, lux_units),
@@ -672,14 +672,14 @@ class State(NamedTuple):
             front=jnp.where(update_queue, 0, self.units.action_queue.front),
             rear=jnp.where(update_queue, actions.unit_action_queue_count, self.units.action_queue.rear),
         )
-        new_self = self._replace(units=self.units._replace(
+        new_self: State = self._replace(units=self.units._replace(
             power=new_power,
             action_queue=new_action_queue,
         ))
         chex.assert_trees_all_equal_shapes(new_self, self)
         self = new_self
 
-        # pop next actions
+        # get next actions
         unit_action = jax.vmap(jax.vmap(Unit.next_action))(self.units)
         unit_action = jux.tree_util.tree_where(
             unit_mask & ~failed_players[..., None],
@@ -719,7 +719,8 @@ class State(NamedTuple):
 
         self = self.add_rubble_for_dead_units(dead)
 
-        self = self._handle_factory_water_actions(factory_actions)
+        color, grow_lichen_size = self._cache_water_info(factory_actions)
+        self = self._handle_factory_water_actions(factory_actions, color, grow_lichen_size)
         self = self._handle_transfer_actions(unit_action, action_info['valid_transfer'])
         self = self._handle_pickup_actions(unit_action, action_info['valid_pickup'])
 
@@ -748,14 +749,19 @@ class State(NamedTuple):
         ))
 
         # resources refining
-        factory = self.factories.refine_step(self.env_cfg)
+        factories = self.factories.refine_step(self.env_cfg)
         water_cost = self.env_cfg.FACTORY_WATER_CONSUMPTION * self.factory_mask
-        stock = factory.cargo.stock.at[..., ResourceType.water].add(-water_cost)
-        factory = factory._replace(cargo=factory.cargo._replace(stock=stock))
+        stock = factories.cargo.stock.at[..., ResourceType.water].add(-water_cost)
+        factories = factories._replace(cargo=factories.cargo._replace(stock=stock))
+        self = self._replace(factories=factories)
+
+        # factories gain power
+        delta_power = self.env_cfg.FACTORY_CHARGE + grow_lichen_size * self.env_cfg.POWER_PER_CONNECTED_LICHEN_TILE
+        new_factory_power = self.factories.power + jnp.where(self.factory_mask, delta_power, 0)
+        self = self._replace(factories=self.factories._replace(power=new_factory_power))
 
         # destroy factories without water
-        factories_to_destroy = (factory.cargo.water < 0)  # noqa
-        self = self._replace(factories=factory)
+        factories_to_destroy = (self.factories.cargo.water < 0)  # noqa
         self = self.destroy_factories(factories_to_destroy)
 
         # power gain
@@ -777,9 +783,6 @@ class State(NamedTuple):
             new_units = new_units._replace(power=new_units.power * self.unit_mask)
             self = self._replace(units=new_units)
         '''
-        # Factories are immune to weather thanks to using nuclear reactors instead
-        new_factory_power = self.factories.power + jnp.where(self.factory_mask, self.env_cfg.FACTORY_CHARGE, 0)
-        self = self._replace(factories=self.factories._replace(power=new_factory_power))
 
         # update step number
         self = self._replace(env_steps=self.env_steps + 1)
@@ -1385,15 +1388,14 @@ class State(NamedTuple):
         success = valid & (self.units.power >= actions.amount)
         return self, success
 
-    def _handle_factory_water_actions(self, factory_actions: Array) -> 'State':
+    def _handle_factory_water_actions(self, factory_actions: Array, color: Array, grow_lichen_size: Array) -> 'State':
 
         H, W = self.board.lichen_strains.shape
 
-        valid, water_cost, color = self._cache_water_info(factory_actions)
-
-        valid  # bool[2, F]
-        water_cost  # int[2, F]
-        color  # int[H, W, 2]
+        # check validity
+        water_cost = jnp.ceil(grow_lichen_size / self.env_cfg.LICHEN_WATERING_COST_FACTOR).astype(UnitCargo.dtype())
+        valid = (factory_actions == FactoryAction.WATER) & (self.factories.cargo.water >= water_cost)  # bool[2, F]
+        water_cost = jnp.where(valid, water_cost, 0)  # int[2, F]
 
         # new factory stocks
         new_stock = self.factories.cargo.stock.at[..., ResourceType.water].add(-water_cost)
@@ -1426,17 +1428,21 @@ class State(NamedTuple):
 
         return self
 
-    def _cache_water_info(self, factory_actions: Array) -> 'Array':
+    def _cache_water_info(self, factory_actions: Array) -> Tuple[Array, Array]:
         """
         Run flood fill algorithm to color cells. All cells to be watered by the
         same factory will have the same color.
 
         Returns:
-            Array: int[2, H, W]. the first dimension represent the 'color'.The
-            'color' is represented by the coordinate of the factory a tile
-            belongs to. If a tile is not connected to any factory, its color its
-            own coordinate. In such a way, different lichen strains will have
-            different colors.
+            color: int[H, W, 2].
+                The first dimension represent the 'color'.The 'color' is
+                represented by the coordinate of the factory a tile belongs to.
+                If a tile is not connected to any factory, its color its own
+                coordinate. In such a way, different lichen strains will have
+                different colors.
+
+            grow_lichen_size: int[2, F].
+                The number of positions to be watered by each factory.
         """
         # The key idea here is to prepare a list of neighbors for each cell it connects to when watered.
         # neighbor_ij is a 4x2xHxW array, where the first dimension is the neighbors (4 at most), the second dimension is the 2 coordinates.
@@ -1536,17 +1542,12 @@ class State(NamedTuple):
         color = self.factories.pos.pos[factory_idx[..., 0], factory_idx[..., 1]]  # int[H, W, 2]
         color = jnp.where((strain_id == imax(strain_id.dtype))[..., None], ij.transpose(1, 2, 0), color)
 
-        # 4. check validity.
+        # 4. grow_lichen_size
         cmp_cnt = jux.map_generator.flood.component_sum(UnitCargo.dtype()(1), color)  # int[H, W]
-
         # -9 for the factory occupied cells
         grow_lichen_size = cmp_cnt[self.factories.pos.x, self.factories.pos.y] - 9  # int[2, F]
-        water_cost = jnp.ceil(grow_lichen_size / self.env_cfg.LICHEN_WATERING_COST_FACTOR).astype(UnitCargo.dtype())
 
-        valid = (factory_actions == FactoryAction.WATER) & (self.factories.cargo.water >= water_cost)
-        water_cost = jnp.where(valid, water_cost, 0)
-
-        return valid, water_cost, color
+        return color, grow_lichen_size
 
     def _mars_quake(self) -> 'State':
         return self.add_rubble_for_dead_units(self.unit_mask)

@@ -42,10 +42,10 @@ class TestState(chex.TestCase):
 
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
-        env, actions = jux.utils.load_replay('https://www.kaggleusercontent.com/episodes/45885903.json')
+        env, actions = jux.utils.load_replay('tests/replay2.0_0.json.gz')
 
         # skip early stage
-        while env.env_steps < 9:
+        while env.env_steps < 11:
             act = next(actions)
             env.step(act)
 
@@ -78,7 +78,7 @@ class TestState(chex.TestCase):
         state_step_late_game(jux_state, JuxAction.empty(jux_state.env_cfg, buf_cfg))
 
         # 4. real test starts here
-        for i, act in zip(range(15), actions):
+        for i, act in zip(range(100), actions):
             print(f"steps: {env.env_steps}")
             jux_state, lux_state = step_both(jux_state, env, act)
         assert_state_eq(jux_state, lux_state)

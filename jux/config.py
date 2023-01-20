@@ -15,7 +15,7 @@ class UnitConfig(NamedTuple):
     CHARGE: int = 1
     INIT_POWER: int = 50
     MOVE_COST: int = 1
-    RUBBLE_MOVEMENT_COST: int = 1
+    RUBBLE_MOVEMENT_COST: float = 1
     DIG_COST: int = 5
     DIG_RUBBLE_REMOVED: int = 1
     DIG_RESOURCE_GAIN: int = 2
@@ -59,10 +59,12 @@ class EnvConfig(NamedTuple):
     INIT_POWER_PER_FACTORY: int = 1000
 
     #### LICHEN ####
-    MIN_LICHEN_TO_SPREAD: int = 10
+    MIN_LICHEN_TO_SPREAD: int = 20
     LICHEN_LOST_WITHOUT_WATER: int = 1
     LICHEN_GAINED_WITH_WATER: int = 1
     MAX_LICHEN_PER_TILE: int = 100
+    POWER_PER_CONNECTED_LICHEN_TILE: int = 1
+
     # cost of watering with a factory is `ceil(# of connected lichen tiles) / (this factor) + 1`
     LICHEN_WATERING_COST_FACTOR: int = 10
 
@@ -70,8 +72,8 @@ class EnvConfig(NamedTuple):
     BIDDING_SYSTEM: bool = True
 
     #### Factories ####
-    FACTORY_PROCESSING_RATE_WATER: int = 50
-    ICE_WATER_RATIO: int = 2
+    FACTORY_PROCESSING_RATE_WATER: int = 100
+    ICE_WATER_RATIO: int = 4
     FACTORY_PROCESSING_RATE_METAL: int = 50
     ORE_METAL_RATIO: int = 5
     # game design note: Factories close to resource cluster = more resources are refined per turn
@@ -84,6 +86,9 @@ class EnvConfig(NamedTuple):
     # game design note: with a positive water consumption, game becomes quite hard for new competitors.
     # so we set it to 0
 
+    #### Collision Mechanics ####
+    POWER_LOSS_FACTOR: float = 0.5
+
     #### Units ####
     ROBOTS: Tuple[UnitConfig, UnitConfig] = (
         # UnitType.LIGHT
@@ -95,7 +100,7 @@ class EnvConfig(NamedTuple):
             BATTERY_CAPACITY=150,
             CHARGE=1,
             MOVE_COST=1,
-            RUBBLE_MOVEMENT_COST=0.1,
+            RUBBLE_MOVEMENT_COST=0.05,
             DIG_COST=5,
             SELF_DESTRUCT_COST=5,
             DIG_RUBBLE_REMOVED=2,
@@ -113,8 +118,8 @@ class EnvConfig(NamedTuple):
             BATTERY_CAPACITY=3000,
             CHARGE=10,
             MOVE_COST=20,
-            RUBBLE_MOVEMENT_COST=1,
-            DIG_COST=45,
+            RUBBLE_MOVEMENT_COST=1.,
+            DIG_COST=60,
             SELF_DESTRUCT_COST=100,
             DIG_RUBBLE_REMOVED=20,
             DIG_RESOURCE_GAIN=20,
