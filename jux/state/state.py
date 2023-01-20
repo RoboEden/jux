@@ -1183,30 +1183,65 @@ class State(NamedTuple):
         # 2. resolve unit collision
         # classify units into groups
         unit_mask = self.unit_mask
-        light = (units.unit_type == UnitType.LIGHT) & unit_mask  # bool[2, MAX_N_UNITS]
-        heavy = (units.unit_type == UnitType.HEAVY) & unit_mask  # bool[2, MAX_N_UNITS]
+        light = (units.unit_type == UnitType.LIGHT) & unit_mask  # bool[2, U]
+        heavy = (units.unit_type == UnitType.HEAVY) & unit_mask  # bool[2, U]
         moving = is_moving & unit_mask
-        still = (~is_moving) & unit_mask  # bool[2, MAX_N_UNITS]
-        chex.assert_shape(light, (2, self.MAX_N_UNITS))  # bool[2, MAX_N_UNITS]
+        still = (~is_moving) & unit_mask  # bool[2, U]
+        chex.assert_shape(light, (2, self.MAX_N_UNITS))  # bool[2, U]
         chex.assert_equal_shape([light, heavy, moving, still])
 
         # count the number of different types of units in each location
         x, y = units.pos.x, units.pos.y
         is_living = ~already_dead & unit_mask
 
-        cnt = jnp.zeros_like(self.board.units_map)
+        cnt = jnp.zeros_like(self.board.units_map, dtype=jnp.int8)
         still_light_cnt = cnt.at[x, y].add(light & still & is_living, mode='drop')  # int[H, W]
         moving_light_cnt = cnt.at[x, y].add(light & moving & is_living, mode='drop')  # int[H, W]
         still_heavy_cnt = cnt.at[x, y].add(heavy & still & is_living, mode='drop')  # int[H, W]
         moving_heavy_cnt = cnt.at[x, y].add(heavy & moving & is_living, mode='drop')  # int[H, W]
         chex.assert_equal_shape([still_light_cnt, moving_light_cnt, still_heavy_cnt, moving_heavy_cnt, cnt])
 
+        # get the second max power of moving light units
+        max_power = jnp.full_like(self.board.units_map, fill_value=-1, dtype=units.power.dtype)
+        moving_light_max_power = max_power.at[x, y].max(  # int[H, W]
+            jnp.where(light & moving & is_living, units.power, -1),
+            mode='drop',
+        )
+        max_power_in_unit_pos = moving_light_max_power[x, y]  # int[2, U]
+        moving_light_second_max = max_power.at[x, y].max(  # int[H, W]
+            jnp.where(light & moving & is_living & (units.power != max_power_in_unit_pos), units.power, -1),
+            mode='drop',
+        )
+        moving_light_max_cnt = cnt.at[x, y].add(  # int[H, W]
+            light & moving & is_living & (units.power == max_power_in_unit_pos),
+            mode='drop',
+        )
+        moving_light_second_max = jnp.where(moving_light_max_cnt > 1, moving_light_max_power, moving_light_second_max)
+
+        # get the second max power of moving heavy units
+        moving_heavy_max_power = max_power.at[x, y].max(  # int[H, W]
+            jnp.where(heavy & moving & is_living, units.power, -1),
+            mode='drop',
+        )
+        max_power_in_unit_pos = moving_heavy_max_power[x, y]  # int[2, U]
+        moving_heavy_second_max = max_power.at[x, y].max(  # int[H, W]
+            jnp.where(heavy & moving & is_living & (units.power != max_power_in_unit_pos), units.power, -1),
+            mode='drop',
+        )
+        moving_heavy_max_cnt = cnt.at[x, y].add(  # int[H, W]
+            heavy & moving & is_living & (units.power == max_power_in_unit_pos),
+            mode='drop',
+        )
+        moving_heavy_second_max = jnp.where(moving_heavy_max_cnt > 1, moving_heavy_max_power, moving_heavy_second_max)
+
         # map above count to agent-wise
-        still_light_cnt = still_light_cnt[x, y]  # int[2, MAX_N_UNITS]
-        moving_light_cnt = moving_light_cnt[x, y]  # int[2, MAX_N_UNITS]
-        still_heavy_cnt = still_heavy_cnt[x, y]  # int[2, MAX_N_UNITS]
-        moving_heavy_cnt = moving_heavy_cnt[x, y]  # int[2, MAX_N_UNITS]
-        chex.assert_shape(still_light_cnt, (2, self.MAX_N_UNITS))  # bool[2, MAX_N_UNITS]
+        still_light_cnt = still_light_cnt[x, y]  # int[2, U]
+        moving_light_cnt = moving_light_cnt[x, y]  # int[2, U]
+        still_heavy_cnt = still_heavy_cnt[x, y]  # int[2, U]
+        moving_heavy_cnt = moving_heavy_cnt[x, y]  # int[2, U]
+        moving_light_second_max = moving_light_second_max[x, y]  # int[2, U]
+        moving_heavy_second_max = moving_heavy_second_max[x, y]  # int[2, U]
+        chex.assert_shape(still_light_cnt, (2, self.MAX_N_UNITS))  # bool[2, U]
         chex.assert_equal_shape([still_light_cnt, moving_light_cnt, still_heavy_cnt, moving_heavy_cnt])
 
         # dead cases
@@ -1217,17 +1252,22 @@ class State(NamedTuple):
             (light & still & (still_light_cnt > 1)),
             # case 3 you are light but still, and there is a moving light:
             (light & still & (moving_light_cnt > 0)),
-            # case 4 you are moving light, and there is another moving light:
-            (light & moving & (moving_light_cnt > 1)),
+            # case 4 you are moving light, and there is another moving light having more or equal power:
+            (light & moving & (moving_light_cnt > 1) & (units.power <= moving_light_second_max)),
             # case 5 you are heavy but still, and there is another still heavy:
             (heavy & still & (still_heavy_cnt > 1)),
             # case 6 you are heavy but still, and there is a moving heavy:
             (heavy & still & (moving_heavy_cnt > 0)),
-            # case 7 you are heavy but moving, and there is another moving heavy:
-            (heavy & moving & (moving_heavy_cnt > 1)),
+            # case 7 you are heavy but moving, and there is another moving heavy having more or equal power:
+            (heavy & moving & (moving_heavy_cnt > 1) & (units.power <= moving_heavy_second_max)),
         ]
         # or them together
         new_dead = functools.reduce(jnp.logical_or, cases)
+
+        power_loss = (light & moving) * jnp.ceil(moving_light_second_max * self.env_cfg.POWER_LOSS_FACTOR).astype(units.power.dtype) \
+            + (heavy & moving) * jnp.ceil(moving_heavy_second_max * self.env_cfg.POWER_LOSS_FACTOR).astype(units.power.dtype)
+        power_loss = jnp.maximum(power_loss, 0)
+        units = units._replace(power=units.power - power_loss)
 
         pos_without_dead = jnp.where(
             (already_dead | new_dead)[..., None],
