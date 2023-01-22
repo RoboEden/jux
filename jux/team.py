@@ -62,9 +62,12 @@ class Team(NamedTuple):
     factories_to_place: jnp.int32
 
     # This is not duplicated with State.factories.unit_id and State.n_factories,
-    # because factory may be destroyed, but destroyed factory id still be
+    # because factory may be destroyed, but a destroyed factory's lichen is still in the game.
+    # To correctly count lichen, we need to keep track of all factories that have been placed.
     factory_strains: jnp.int8  # int[MAX_N_FACTORIES], factory_id belonging to this team
-    n_factory: jnp.int8  # usually MAX_FACTORIES or MAX_FACTORIES + 1
+    n_factory: jnp.int8
+
+    bid: jnp.int32
 
     @classmethod
     def new(
@@ -76,6 +79,7 @@ class Team(NamedTuple):
         factories_to_place: int = 0,
         factory_strains: Union[Array, None] = None,
         n_factory: int = 0,
+        bid: int = 0,
         *,
         buf_cfg: Union[JuxBufferConfig, None] = None,
     ) -> "Team":
@@ -93,6 +97,7 @@ class Team(NamedTuple):
             factories_to_place=Team.__annotations__['factories_to_place'](factories_to_place),
             factory_strains=Team.__annotations__['factory_strains'](factory_strains),
             n_factory=Team.__annotations__['n_factory'](n_factory),
+            bid=Team.__annotations__['bid'](bid),
         )
 
     @classmethod
@@ -111,6 +116,7 @@ class Team(NamedTuple):
             factories_to_place=lux_team.factories_to_place,
             factory_strains=factory_strains,
             n_factory=n_factory,
+            bid=lux_team.bid,
         )
 
     def to_lux(
@@ -127,10 +133,12 @@ class Team(NamedTuple):
         lux_team.factories_to_place = int(self.factories_to_place)
         lux_team.factory_strains = self.factory_strains[:self.n_factory].tolist()
         lux_team.place_first = place_first
+        lux_team.bid = int(self.bid)
         return lux_team
 
     def __eq__(self, __o: object) -> bool:
         if not isinstance(__o, Team):
             return False
         return ((self.faction == __o.faction) & (self.team_id == __o.team_id) & (self.init_water == __o.init_water)
-                & (self.init_metal == __o.init_metal) & (self.factories_to_place == __o.factories_to_place))
+                & (self.init_metal == __o.init_metal) & (self.factories_to_place == __o.factories_to_place) &
+                (self.bid == __o.bid))

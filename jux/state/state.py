@@ -513,6 +513,7 @@ class State(NamedTuple):
                     [self.board.factories_per_team] * 2,
                     dtype=Team.__annotations__['factories_to_place'],
                 ),
+                bid=bid.astype(Team.__annotations__['bid']),
             ),
             place_first=State.__annotations__['place_first'](place_first),
             env_steps=self.env_steps + 1,
