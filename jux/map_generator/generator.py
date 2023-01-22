@@ -291,6 +291,7 @@ def solve_poisson(f):
     f = cx[:, None] + cy[None, :] - 2
 
     dct = jnp.divide(dct, f) * (f != 0)
+    dct = jnp.nan_to_num(dct, copy=True)
     dct = dct * (f != 0)
 
     # Return to normal space
