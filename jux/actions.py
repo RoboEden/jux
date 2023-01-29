@@ -18,7 +18,7 @@ from jux.config import EnvConfig, JuxBufferConfig
 from jux.map.position import Direction, Position
 from jux.team import FactionTypes
 from jux.unit_cargo import ResourceType, UnitCargo
-from jux.utils import INT8_MAX, INT32_MAX
+from jux.utils import INT16_MAX
 
 try:
     import torch
@@ -165,7 +165,7 @@ class UnitAction(NamedTuple):
             (0 <= self.direction) & (self.direction <= len(Direction) - 1) & \
             (0 <= self.resource_type) & (self.resource_type <= len(ResourceType) - 1) & \
             (0 <= self.amount) & (self.amount <= max_transfer_amount) & \
-            (-1 <= self.repeat) & (self.repeat <= INT8_MAX) \
+            (0 <= self.repeat) & (self.repeat <= INT16MAX) \
         )
 
 
