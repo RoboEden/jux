@@ -720,7 +720,7 @@ class State(NamedTuple):
 
         self = self.add_rubble_for_dead_units(dead)
 
-        color, grow_lichen_size = self._cache_water_info(factory_actions)
+        color, grow_lichen_size, connected_lichen_size = self._cache_water_info(factory_actions)
         self = self._handle_factory_water_actions(factory_actions, color, grow_lichen_size)
         self = self._handle_transfer_actions(unit_action, action_info['valid_transfer'])
         self = self._handle_pickup_actions(unit_action, action_info['valid_pickup'])
@@ -757,7 +757,7 @@ class State(NamedTuple):
         self = self._replace(factories=factories)
 
         # factories gain power
-        delta_power = self.env_cfg.FACTORY_CHARGE + grow_lichen_size * self.env_cfg.POWER_PER_CONNECTED_LICHEN_TILE
+        delta_power = self.env_cfg.FACTORY_CHARGE + connected_lichen_size * self.env_cfg.POWER_PER_CONNECTED_LICHEN_TILE
         new_factory_power = self.factories.power + jnp.where(self.factory_mask, delta_power, 0)
         self = self._replace(factories=self.factories._replace(power=new_factory_power))
 
@@ -1469,7 +1469,7 @@ class State(NamedTuple):
 
         return self
 
-    def _cache_water_info(self, factory_actions: Array) -> Tuple[Array, Array]:
+    def _cache_water_info(self, factory_actions: Array) -> Tuple[Array, Array, Array]:
         """
         Run flood fill algorithm to color cells. All cells to be watered by the
         same factory will have the same color.
@@ -1588,7 +1588,15 @@ class State(NamedTuple):
         # -9 for the factory occupied cells
         grow_lichen_size = cmp_cnt[self.factories.pos.x, self.factories.pos.y] - 9  # int[2, F]
 
-        return color, grow_lichen_size
+        # compute number of connected lichen tiles
+        def loop_fn(_, x):
+            y_0 = jnp.where(x[0] != imax(x.dtype), (connected_lichen == x[0]).sum(), 0)
+            y_1 = jnp.where(x[1] != imax(x.dtype), (connected_lichen == x[1]).sum(), 0)
+            return None, jnp.array([y_0, y_1])
+        _, connected_lichen_size = jax.lax.scan(loop_fn, None, self.factories.num_id.T)
+        # -9 for factory occupied cells
+        connected_lichen_size = connected_lichen_size.T - 9
+        return color, grow_lichen_size, connected_lichen_size
 
     def _mars_quake(self) -> 'State':
         return self.add_rubble_for_dead_units(self.unit_mask)
