@@ -64,7 +64,7 @@ class UnitAction(NamedTuple):
     direction: jnp.int8 = jnp.int8(0)
     resource_type: jnp.int8 = jnp.int8(0)
     amount: jnp.int16 = jnp.int16(0)
-    repeat: jnp.int8 = jnp.int8(0)
+    repeat: jnp.int16 = jnp.int16(0)
     n: jnp.int16 = jnp.int16(0)
 
     @classmethod
@@ -74,7 +74,7 @@ class UnitAction(NamedTuple):
         direction: Union[Direction, int] = 0,
         resource_type: Union[ResourceType, int] = 0,
         amount: jnp.int16 = 0,
-        repeat: jnp.int8 = 0,
+        repeat: jnp.int16 = 0,
         n: jnp.int16 = 0,
     ) -> "UnitAction":
         return UnitAction(
@@ -82,7 +82,7 @@ class UnitAction(NamedTuple):
             jnp.int8(direction),
             jnp.int8(resource_type),
             jnp.int16(amount),
-            jnp.int8(repeat),
+            jnp.int16(repeat),
             jnp.int16(n),
         )
 
