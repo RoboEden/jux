@@ -165,7 +165,8 @@ class UnitAction(NamedTuple):
             (0 <= self.direction) & (self.direction <= len(Direction) - 1) & \
             (0 <= self.resource_type) & (self.resource_type <= len(ResourceType) - 1) & \
             (0 <= self.amount) & (self.amount <= max_transfer_amount) & \
-            (0 <= self.repeat) & (self.repeat <= INT16MAX) \
+            (0 <= self.n) & (self.n <= INT16_MAX) \
+            (0 <= self.repeat) & (self.repeat <= INT16_MAX) \
         )
 
 

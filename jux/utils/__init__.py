@@ -11,7 +11,7 @@ import numpy as np
 from luxai_s2 import LuxAI_S2
 
 INT32_MAX = jnp.iinfo(jnp.int32).max
-INT16_MAX = jnp.iinfo(jnp.int32).max
+INT16_MAX = jnp.iinfo(jnp.int16).max
 INT8_MAX = jnp.iinfo(jnp.int8).max
 
 
