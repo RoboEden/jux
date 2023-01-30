@@ -22,7 +22,7 @@
     ]
     dependencies = [
         "luxai-s2==2.0.0",
-        "jax[cuda]",
+        # "jax[cuda]",
         "chex",
     ]
     dynamic = ["version"]
@@ -69,3 +69,8 @@
 
 [tool.autoflake]
     imports = ["jax", "numpy", "chex"]
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+line_length = 120
