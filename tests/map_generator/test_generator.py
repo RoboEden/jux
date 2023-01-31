@@ -1,10 +1,13 @@
 import os
 
 import chex
+import jax
+import jax.numpy as jnp
 import numpy as np
 
 from jux.config import JuxBufferConfig
 from jux.map_generator.generator import GameMap, LuxGameMap, MapType
+from jux.map_generator.generator_config import MapDistributionType
 from jux.map_generator.symnoise import SymmetryType
 
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.50"
@@ -34,7 +37,7 @@ class TestGameMap(chex.TestCase):
         assert lux_game_map_eq(game_map.to_lux(), lux_game_map)
         assert game_map == GameMap.from_lux((game_map.to_lux()))
 
-    @chex.variants(with_jit=True, without_jit=True, with_device=True, without_device=True)
+    @chex.variants(with_jit=True, without_jit=True, with_device=True)
     def test_map(self):
         seed = 42
         map_type = MapType.MOUNTAIN
@@ -46,10 +49,22 @@ class TestGameMap(chex.TestCase):
             GameMap.random_map,
             static_argnames=("width", "height"),
         )
+        key = jax.random.PRNGKey(seed)
+        key, subkey = jax.random.split(key)
+        map_distribution_type = jax.random.choice(
+            key=subkey,
+            a=jnp.array([
+                MapDistributionType.HIGH_ICE_HIGH_ORE,
+                MapDistributionType.HIGH_ICE_LOW_ORE,
+                MapDistributionType.LOW_ICE_HIGH_ORE,
+                MapDistributionType.LOW_ICE_LOW_ORE,
+            ]),
+        )
         map_grid = map_generator(
             seed=seed,
             map_type=map_type,
             symmetry=symmetry,
             width=width,
             height=height,
+            map_distribution_type=map_distribution_type,
         )

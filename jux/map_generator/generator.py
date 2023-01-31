@@ -1,4 +1,3 @@
-from enum import IntEnum
 from functools import partial
 from typing import NamedTuple, Optional, Type
 
@@ -12,24 +11,9 @@ from luxai_s2.map_generator.visualize import viz as lux_viz
 
 from jux.config import EnvConfig, JuxBufferConfig
 from jux.map_generator.flood import boundary_sum, component_sum, flood_fill
+from jux.map_generator.generator_config import CaveConfig, MapDistributionType, MapType, MountainConfig
 from jux.map_generator.symnoise import SymmetryNoise, SymmetryType, symmetrize
 from jux.utils import INT32_MAX
-
-
-class MapType(IntEnum):
-    CAVE = 0
-    CRATERS = 1
-    ISLAND = 2
-    MOUNTAIN = 3
-
-    @classmethod
-    def from_lux(cls, map_type: str) -> "MapType":
-        idx = ["Cave", "Craters", "Island", "Mountain"].index(map_type)
-        return cls(idx)
-
-    @classmethod
-    def to_lux(self) -> str:
-        return ["Cave", "Craters", "Island", "Mountain"][self.value]
 
 
 class GameMap(NamedTuple):
@@ -60,14 +44,15 @@ class GameMap(NamedTuple):
                    map_type: Optional[MapType] = None,
                    symmetry: Optional[SymmetryType] = None,
                    width: jnp.int32 = None,
-                   height: jnp.int32 = None) -> "GameMap":
+                   height: jnp.int32 = None,
+                   map_distribution_type: jnp.int32 = None) -> "GameMap":
         noise = SymmetryNoise(seed=seed, symmetry=symmetry, octaves=3)
         map_rand = lax.switch(map_type, [
             partial(cave, width, height),
             partial(craters, width, height),
             partial(island, width, height),
             partial(mountain, width, height),
-        ], symmetry, noise)
+        ], symmetry, noise, map_distribution_type)
         return GameMap.new(
             map_rand.rubble,
             map_rand.ice,
@@ -131,7 +116,14 @@ def maximum_filter(matrix, window_dimensions=(4, 4)):
     return matrix
 
 
-def cave(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: SymmetryNoise) -> "GameMap":
+def cave(
+    width: jnp.int32,
+    height: jnp.int32,
+    symmetry: SymmetryType,
+    noise: SymmetryNoise,
+    map_distribution_type: MapDistributionType,
+) -> "GameMap":
+    config: CaveConfig = CaveConfig.new(map_distribution_type=map_distribution_type)
     seed = noise.seed
     key = jax.random.PRNGKey(seed)
     key, subkey = jax.random.split(key)
@@ -167,19 +159,21 @@ def cave(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: Sym
     ice = noise.noise(x, y + 100)
     ice = ice * (mask <= 1)
     ice = ice * (mask != 0)
-    mid_mask = (ice < jnp.percentile(ice, 92)) & (ice > jnp.percentile(ice, 91))
-    ice = ice * (ice >= jnp.percentile(ice, 98))
-    ice = ice != 0
-    ice = mid_mask + ice * (~mid_mask)
+    mid_mask = (ice > jnp.percentile(ice, config.ice_mid_range[0])) & (ice < jnp.percentile(
+        ice, config.ice_mid_range[1]))
+    high_mask = (ice > jnp.percentile(ice, config.ice_high_range[0])) & (ice < jnp.percentile(
+        ice, config.ice_high_range[1]))
+    ice = mid_mask | high_mask
 
     # Make some noisy ore, most ore is outside caves
     ore = noise.noise(x, y - 100)
     ore = ore * (mask != 1)
     ore = ore * (mask != 0)
-    mid_mask = (ore < jnp.percentile(ore, 92)) & (ore > jnp.percentile(ore, 91))
-    ore = ore * (~(ore < jnp.percentile(ore, 98)))
-    ore = ore != 0
-    ore = mid_mask + ore * (~mid_mask)
+    mid_mask = (ore > jnp.percentile(ore, config.ore_mid_range[0])) & (ore < jnp.percentile(
+        ore, config.ore_mid_range[1]))
+    high_mask = (ore > jnp.percentile(ore, config.ore_high_range[0])) & (ore < jnp.percentile(
+        ore, config.ore_high_range[1]))
+    ore = mid_mask | high_mask
 
     return GameMap(
         rubble=rubble,
@@ -189,7 +183,13 @@ def cave(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: Sym
     )
 
 
-def craters(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: SymmetryNoise) -> "GameMap":
+def craters(
+    width: jnp.int32,
+    height: jnp.int32,
+    symmetry: SymmetryType,
+    noise: SymmetryNoise,
+    map_distribution_type: MapDistributionType,
+) -> "GameMap":
     min_craters = jnp.maximum(2, width * height // 1000)
     max_craters = jnp.maximum(4, width * height // 500)
     seed = noise.seed
@@ -290,9 +290,8 @@ def solve_poisson(f):
     cy = jnp.cos(jnp.pi * jnp.arange(ny) / (ny - 1))
     f = cx[:, None] + cy[None, :] - 2
 
-    dct = jnp.divide(dct, f) * (f != 0)
-    dct = jnp.nan_to_num(dct, copy=True)
-    dct = dct * (f != 0)
+    dct = jnp.divide(dct, f)
+    dct = jnp.nan_to_num(dct, copy=True, nan=0.0, posinf=0.0, neginf=0.0)
 
     # Return to normal space
     potential = idctn1(dct)
@@ -317,7 +316,14 @@ def convolve2d_reflect(matrix, kernel):
     return matrix
 
 
-def mountain(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: SymmetryNoise) -> "GameMap":
+def mountain(
+    width: jnp.int32,
+    height: jnp.int32,
+    symmetry: SymmetryType,
+    noise: SymmetryNoise,
+    map_distribution_type: MapDistributionType,
+) -> "GameMap":
+    config: MountainConfig = MountainConfig.new(map_distribution_type=map_distribution_type)
     seed = noise.seed
     f = jnp.zeros((height, width))
 
@@ -395,20 +401,22 @@ def mountain(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise:
     mask = mask / jnp.amax(mask)
 
     rubble = (100 * mask).round()
-    ice = (100 * mask).round()
-    mid_mask = (ice < jnp.percentile(ice, 50)) & (ice > jnp.percentile(ice, 48)) | (ice < jnp.percentile(
-        ice, 20)) & (ice > jnp.percentile(ice, 0))
-    ice = ice * (ice >= jnp.percentile(ice, 98))
-    ice = ice != 0
-    ice = ice * (~mid_mask) + mid_mask
-    ice = ice.astype(jnp.bool_)
+    ice = (100 * mask)
+    high_mask = (ice > jnp.percentile(ice, config.ice_high_range[0])) & (ice < jnp.percentile(
+        ice, config.ice_high_range[1]))
+    mid_mask = (ice > jnp.percentile(ice, config.ice_mid_range[0])) & (ice < jnp.percentile(
+        ice, config.ice_mid_range[1]))
+    low_mask = (ice > jnp.percentile(ice, config.ice_low_range[0])) & (ice < jnp.percentile(
+        ice, config.ice_low_range[1]))
+    ice = low_mask | mid_mask | high_mask
+    ore = (100 * mask)
 
-    ore = (100 * mask).round()
-    mid_mask = (ore < jnp.percentile(ore, 62)) & (ore > jnp.percentile(ore, 60))
-    ore = (ore >= jnp.percentile(ore, 83.5)) & (ore <= jnp.percentile(ore, 84.5))
-    ore = ore != 0
-    ore = ore * (~mid_mask) + mid_mask
-    ore = ore.astype(jnp.bool_)
+    mid_mask = (ore > jnp.percentile(ore, config.ore_mid_range[0])) & (ore < jnp.percentile(
+        ore, config.ore_mid_range[1]))
+    low_mask = (ore > jnp.percentile(ore, config.ore_low_range[0])) & (ore < jnp.percentile(
+        ore, config.ore_low_range[1]))
+
+    ore = low_mask | mid_mask
 
     return GameMap(
         rubble=rubble,
@@ -434,7 +442,13 @@ def convolve2d_fill(matrix: Array, kernel: Array, fillvalue: jnp.float32):
     return matrix_full
 
 
-def island(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: SymmetryNoise) -> "GameMap":
+def island(
+    width: jnp.int32,
+    height: jnp.int32,
+    symmetry: SymmetryType,
+    noise: SymmetryNoise,
+    map_distribution_type: MapDistributionType,
+) -> "GameMap":
     # at the end, 0 = island, 1 = sea (of rubble)
     seed = noise.seed
     key = jax.random.PRNGKey(seed)
@@ -496,30 +510,3 @@ def island(width: jnp.int32, height: jnp.int32, symmetry: SymmetryType, noise: S
         ore=ore,
         symmetry=symmetry,
     )
-
-
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Generate maps for Lux AI 2022.")
-    parser.add_argument("-t", "--map_type", help="Map type ('Cave', 'Craters', 'Island', 'Mountain')", required=False)
-    parser.add_argument("-s", "--size", help="Size (32-64)", required=False)
-    parser.add_argument("-d", "--seed", help="Seed")
-    parser.add_argument("-m", "--symmetry", help="Symmetry ('horizontal', 'rotational', 'vertical', '/', '\\')")
-
-    args = vars(parser.parse_args())
-    map_type = args.get("map_type", None)
-    symmetry = args.get("symmetry", None)
-    if args.get("size", None):
-        width = height = int(args["size"])
-    else:
-        width = height = None
-    if args.get("seed", None):
-        seed = int(args["seed"])
-    else:
-        seed = None
-
-    map_type = MapType.from_lux(map_type)
-    symmetry = MapType.from_lux(symmetry)
-    game_map = GameMap.random_map(seed=seed, symmetry=symmetry, map_type=map_type, width=width, height=height)
-    lux_viz(game_map)
-    input()
