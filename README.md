@@ -6,25 +6,26 @@ JUX is a <ins>J</ins>ax-accelerated game core for L<ins>ux</ins> AI Challenge Se
 One of the main dependencies is JAX, which in turn relies on NVCC, CUDA Toolkit and cuDNN. There are two ways to get them ready, either by conda or docker (recommended).
 
 For conda users, you can install them with the following commands.
-```console
-$ conda install -c nvidia cuda-nvcc cuda-python
-$ conda install cudnn
+```sh
+conda install -c nvidia cuda-nvcc cuda-python
+conda install cudnn
 ```
 For docker users, you can use the [NVIDIA CUDA docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda) or the [PyTorch docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch), which has all of them ready and compatible with each other.
 
 ### Install JAX
-Please follow the [official installation guide](https://github.com/google/jax#installation) to install JAX.
-
+Please follow the [official installation guide](https://github.com/google/jax#installation) to install JAX. Note: JAX must be compatible with your cuDNN.
+- If cudnn >= 8.2 and < 8.6, please install `"jax[cuda11_cudnn82]"`.
+- If cudnn >= 8.6, please install `"jax[cuda11_cudnn86]"`.
 
 ### Install JUX
 Finally, upgrade your pip and install JUX.
-```console
-$ pip install --upgrade pip
-$ pip install juxai-s2
+```sh
+pip install --upgrade pip
+pip install juxai-s2
 ```
 
 ## Usage
- See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai_s2==2.1.0`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI-S2 may process them differently.
+See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai_s2==2.1.0`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI-S2 may process them differently.
 
 ## Performance
 JUX maps all game logic to array operators in JAX so that we can harvest the computational power of modern GPUs and support tons of environments running in parallel. We benchmarked JUX on several different GPUs, and increased the throughput by hundreds to thousands of times, compared with the original single-thread Python implementation.

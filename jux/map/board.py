@@ -24,7 +24,7 @@ Factory_id_dtype = jnp.int8
 
 
 class Board(NamedTuple):
-    seed: int
+    seed: jnp.uint32
     factories_per_team: jnp.int8
 
     map: GameMap

@@ -25,7 +25,7 @@ class TestState(chex.TestCase):
 
     def test_from_to_lux(self):
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=30)
-        env, actions = jux.utils.load_replay('tests/replay-45702251.json.gz')
+        env, actions = jux.utils.load_replay(f'https://www.kaggleusercontent.com/episodes/{46215591}.json')
         for i in range(10):
             action = next(actions)
             env.step(action)
@@ -42,7 +42,7 @@ class TestState(chex.TestCase):
 
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
-        env, actions = jux.utils.load_replay('tests/replay2.0_0.json.gz')
+        env, actions = jux.utils.load_replay(f'https://www.kaggleusercontent.com/episodes/{46215591}.json')
 
         # skip early stage
         while env.env_steps < 11:
@@ -84,7 +84,6 @@ class TestState(chex.TestCase):
         assert_state_eq(jux_state, lux_state)
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
-    @pytest.mark.skip(reason="no way of currently testing this without v2.0.0 replay")
     def test_recharge_action(self):
         chex.clear_trace_counter()
 
@@ -94,7 +93,7 @@ class TestState(chex.TestCase):
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
 
-        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45885903.json")
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/46215591.json")
 
         # skip first several steps, since it contains no recharge action
         while env.env_steps < 10 + 149:
@@ -132,7 +131,6 @@ class TestState(chex.TestCase):
             assert_state_eq(jux_state, lux_state)
 
     @chex.variants(with_jit=True, without_jit=True, with_device=True)
-    @pytest.mark.skip(reason="no way of currently testing this without v2.0.0 replay")
     def test_step_factory_water(self):
         chex.clear_trace_counter()
 
@@ -141,7 +139,7 @@ class TestState(chex.TestCase):
 
         # 2. prepare an environment
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=100)
-        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45885903.json")
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/46215591.json")
         # The first 905 steps do not contains any FactoryAction.Water, so we skip them.
         while env.env_steps < 300:
             act = next(actions)
@@ -183,16 +181,14 @@ class TestState(chex.TestCase):
             else:
                 env.step(act)
 
-    @pytest.mark.skip(reason="no way of currently testing this without v2.0.0 replay")
     def test_episode(self):
         chex.clear_trace_counter()
         cases = [
             # Some steps are skipped because of bugs in the official one.
             # episode id and skip steps.
-            ('45885449', []),
-            ('45885731', []),
-            ('45885907', []),
-            ('45886082', []),
+            ('46215591', []),
+            ('46217254', []),
+            ('46217201', []),
         ]
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
 
@@ -240,9 +236,8 @@ class TestState(chex.TestCase):
                     jux_state, lux_state = step_both(jux_state, env, act)
             assert_state_eq(jux_state, lux_state)
 
-    @pytest.mark.skip(reason="no way of currently testing this without v2.0.0 replay")
     def test_team_lichen_score(self):
-        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/45885903.json")
+        env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/46215591.json")
         for act in actions:
             _, lux_rewards, _, _ = env.step(act)
         lux_rewards = jnp.array(list(lux_rewards.values()))

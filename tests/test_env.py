@@ -27,7 +27,7 @@ class TestJuxEnv:
         assert state___eq___jitted(state1, state2)
 
     def test_step_bid_and_factory_placement(self):
-        lux_env, actions = jux.utils.load_replay(f'tests/replay2.0_0.json.gz')
+        lux_env, actions = jux.utils.load_replay(f'https://www.kaggleusercontent.com/episodes/{46215591}.json')
 
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
         jux_env, jux_state = JuxEnv.from_lux(lux_env, buf_cfg=buf_cfg)
@@ -78,13 +78,12 @@ class TestJuxEnv:
             assert jux_rewards[0] == lux_rewards['player_0']
             assert jux_rewards[1] == lux_rewards['player_1']
 
-    @pytest.mark.skip(reason="no way of currently testing this without v2.0.0 replay")
     def test_step_late_game(self):
         chex.clear_trace_counter()
         episode_list = [
-            '45740641',
-            '45885903',
-            '45750090',
+            '46215591',
+            '46217254',
+            '46217201',
         ]
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
         jux_env = JuxEnv(buf_cfg=buf_cfg)
@@ -151,9 +150,9 @@ class TestJuxEnvBatch:
     def test_step_bid_and_factory_placement(self):
         chex.clear_trace_counter()
         episode_list = [
-            '45740641',
-            '45885903',
-            '45750090',
+            '46215591',
+            '46217254',
+            '46217201',
         ]
         lux_env_list = []
         lux_actions_list = []

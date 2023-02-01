@@ -34,7 +34,7 @@ repository = "https://github.com/RoboEden/jux"
 # TODO: add documentation url
 
 [project.optional-dependencies]
-torch = ["torch", "torchvision", "torchaudio"]
+torch = ["torch"]
 
 dev = [
     "toml",
