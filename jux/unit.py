@@ -117,10 +117,12 @@ class Unit(NamedTuple):
 
     def repeat_action(self, success: bool) -> 'Unit':
         '''
-        Currently, invalid actions in luxai2021 are not executed and also not
-        removed from the action queue. So, wee need an indicator 'success' to
+        Currently, invalid actions in luxai_s2 are not executed and also not
+        removed from the action queue. So, we need an indicator 'success' to
         indicate whether the action is executed successfully. Only when the
         action is executed successfully, we can pop/repeat it.
+
+        From luxai_s2, we set the action's n value equal to repeat if we pop and push back
 
         Args:
             success (bool[2, U]): whether the action is executed successfully
@@ -134,10 +136,10 @@ class Unit(NamedTuple):
         pop_only = (act.n <= 1) & ~act.repeat & success & not_empty
         pop_and_push_back = (act.n <= 1) & act.repeat & success & not_empty
 
-        data = jax.tree_map(
+        data: UnitAction = jax.tree_map(
             lambda queue, a: queue.at[self.action_queue.rear].set(a),
             self.action_queue.data,
-            act._replace(n=jnp.where(pop_and_push_back, 1, act.n)),
+            act._replace(n=jnp.where(pop_and_push_back, act.repeat, act.n)),
         )
         n = data.n.at[self.action_queue.front].add(-n_minus_one.astype(data.n.dtype))
         data = data._replace(n=n)

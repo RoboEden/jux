@@ -124,14 +124,27 @@ def _flood_fill(neighbor_ij: jax.Array) -> jax.Array:
 @jax.jit
 def component_sum(data, color):
     """
-    A flood fill algorithm that returns the color of each cell.
+    Compute the sum of data within each component.
 
     Args:
-        int[H, W, 2]: the color of each cell. Calculated by `flood_fill()` or
+        data: broadcastable to int[H, W]. the data to be summed.
+        color: int[H, W, 2]. the color of each cell. Calculated by `flood_fill()` or
         `_flood_fill()`.
 
     Returns:
         [H, W]: the sum of data within the component each cell is located.
+
+    Example:
+        ```python
+        >>> mask = jnp.array([[0, 0, 1],
+        ...                   [0, 1, 0],
+        ...                   [1, 0, 0]])
+        >>> color = flood_fill(mask)
+        >>> component_sum(1, color) # calculate the number of cells in each component
+        DeviceArray([[3, 3, 1],
+                    [3, 1, 3],
+                    [1, 3, 3]], dtype=int32)
+        ```
     """
     cmp_sum = jnp.zeros(color.shape[:2], jnp.asarray(data).dtype)
     cmp_sum = cmp_sum.at[color[..., 0], color[..., 1]].add(data)
@@ -142,16 +155,33 @@ def component_sum(data, color):
 @jax.jit
 def boundary_sum(data, color, mask):
     """
-    A flood fill algorithm that returns the color of each cell.
+    Compute the sum of data at component boundary.
 
     Args:
-        int[H, W, 2]: the color of each cell. Calculated by `flood_fill()` or
-        `_flood_fill()`.
+        data: broadcastable to int[H, W]. the data to be summed.
+        color: int[H, W, 2]. the color of each cell. Calculated by `flood_fill(mask)`.
+        mask: bool[H, W] that stores the barriers on the map. False
+            means no barrier, True means barrier.
 
     Returns:
         [H, W]: the sum of data in the boundary of the component each cell is
-        located. Component boundary refers to the cells that are adjacent to the
+        located. Component boundary refers to the barriers that are adjacent to the
         component but not in the component.
+
+
+    Example:
+        ```python
+        >>> mask = jnp.array([
+        ...     [1, 0, 0],
+        ...     [0, 1, 0],
+        ...     [0, 0, 1]
+        ... ], dtype=jnp.bool_)
+        >>> color = flood_fill(mask)
+        >>> boundary_sum(1, color, mask) # calculate the boundary size
+        DeviceArray([[0, 3, 3],
+                    [3, 0, 3],
+                    [3, 3, 0]], dtype=int32)
+        ```
     """
     H, W = mask.shape
 

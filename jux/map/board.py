@@ -10,7 +10,7 @@ from luxai_s2.map.board import Board as LuxBoard
 
 from jux.config import EnvConfig, JuxBufferConfig, LuxEnvConfig
 from jux.map.position import Position
-from jux.map_generator.generator import GameMap, MapType, SymmetryType
+from jux.map_generator.generator import GameMap, MapDistributionType, MapType, SymmetryType
 from jux.utils import INT32_MAX, imax
 
 radius = 6
@@ -24,7 +24,7 @@ Factory_id_dtype = jnp.int8
 
 
 class Board(NamedTuple):
-    seed: int
+    seed: jnp.uint32
     factories_per_team: jnp.int8
 
     map: GameMap
@@ -117,12 +117,23 @@ class Board(NamedTuple):
             key=subkey,
             a=jnp.array([SymmetryType.HORIZONTAL, SymmetryType.VERTICAL]),
         )
+        key, subkey = jax.random.split(key)
+        map_distribution_type = jax.random.choice(
+            key=subkey,
+            a=jnp.array([
+                MapDistributionType.HIGH_ICE_HIGH_ORE,
+                MapDistributionType.HIGH_ICE_LOW_ORE,
+                MapDistributionType.LOW_ICE_HIGH_ORE,
+                MapDistributionType.LOW_ICE_LOW_ORE,
+            ]),
+        )
         map = GameMap.random_map(
             seed=seed,
             symmetry=symmetry,
             map_type=map_type,
             width=width,
             height=height,
+            map_distribution_type=map_distribution_type,
         )
         key, subkey = jax.random.split(key)
         if factories_per_team is None:

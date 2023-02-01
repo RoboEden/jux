@@ -1,4 +1,11 @@
 # Change Log
+## v2.1.0
+Major changes:
+ - Implement same game logic as `luxai-s2==2.1.0`. See [Lux-Design-S2/ChangeLog.md](https://github.com/Lux-AI-Challenge/Lux-Design-S2/blob/v2.1.0/ChangeLog.md) for details.
+ - `jax` is removed from the dependency list, and need to be installed by user manually. This is because `jax` must be compatible with cuDNN, and only the user knows which version of cuDNN is installed on their machine.
+
+Bug fixes:
+ - fix a bug that leads to crash when env seed exceed int32 max range.
 
 ## v2.0.0
 Major changes:

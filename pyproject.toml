@@ -1,71 +1,72 @@
 [build-system]
-    requires = ["setuptools", "setuptools-scm"]
-    build-backend = "setuptools.build_meta"
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
 
 [project]
-    name = "juxai-s2"
-    description = "JUX is a jax-accelerated engine for Lux-2022."
-    requires-python = ">=3.7, <3.11"
-    license = { file = "LICENSE" }
-    readme = "README.md"
-    authors = [
-        { name = "Qimai Li", email = "qimaili@chaocanshu.ai" },
-        { name = "Yuhao Jiang", email = "yuhaojiang@chaocanshu.ai" },
-    ]
-    keywords = ["JAX", "LuxAI-S2"]
-    classifiers = [
-        "Programming Language :: Python :: 3",
-        "Environment :: GPU :: NVIDIA CUDA",
-        "License :: OSI Approved :: MIT License",
-        "Topic :: Games/Entertainment :: Real Time Strategy",
-        "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    ]
-    dependencies = [
-        "luxai-s2==2.0.0",
-        "jax[cuda]",
-        "chex",
-    ]
-    dynamic = ["version"]
+name = "juxai-s2"
+description = "JUX is a jax-accelerated engine for Lux-2022."
+requires-python = ">=3.7, <3.11"
+license = { file = "LICENSE" }
+readme = "README.md"
+authors = [
+    { name = "Qimai Li", email = "qimaili@chaocanshu.ai" },
+    { name = "Yuhao Jiang", email = "yuhaojiang@chaocanshu.ai" },
+]
+keywords = ["JAX", "LuxAI-S2"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Games/Entertainment :: Real Time Strategy",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "luxai-s2==2.1.0",
+    # "jax[cuda]",
+    "chex",
+]
+dynamic = ["version"]
 
-    [project.urls]
-    repository = "https://github.com/RoboEden/jux"
-    "Bug Tracker" = "https://github.com/RoboEden/jux/issues"
-    # TODO: add homepage url
-    # TODO: add documentation url
+[project.urls]
+repository = "https://github.com/RoboEden/jux"
+"Bug Tracker" = "https://github.com/RoboEden/jux/issues"
+# TODO: add homepage url
+# TODO: add documentation url
 
-    [project.optional-dependencies]
-    torch = [
-        "torch",
-        "torchvision",
-        "torchaudio",
-    ]
+[project.optional-dependencies]
+torch = ["torch"]
 
-    dev = [
-        "toml",
-        "pre-commit",
-        "pytype",
-        "tox",
-        "tox-conda",
-        "pytest",
-        "pytest-cov",
-        "isort",
-        "autoflake",
-        "yapf",
-        "bump2version",
-        "rich",
-        "pandas",
-        "ipywidgets>=7.0,<8.0",
-        "notebook",
-        "build",
-        "twine",
-    ]
+dev = [
+    "toml",
+    "pre-commit",
+    "pytype",
+    "tox",
+    "tox-conda",
+    "pytest",
+    "pytest-cov",
+    "isort",
+    "autoflake",
+    "yapf",
+    "bump2version",
+    "rich",
+    "pandas",
+    "ipywidgets>=7.0,<8.0",
+    "notebook",
+    "build",
+    "twine",
+]
 
 [tool.setuptools.dynamic]
-    version = { attr = "jux.__version__" }
+version = { attr = "jux.__version__" }
 
 [tool.yapf]
-    column_limit = 120
-    indent_width = 4
+column_limit = 120
+indent_width = 4
 
 [tool.autoflake]
-    imports = ["jax", "numpy", "chex"]
+imports = ["jax", "numpy", "chex"]
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+line_length = 120

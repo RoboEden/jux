@@ -8,6 +8,7 @@ import numpy as np
 from jax import Array
 from luxai_s2.state import State as LuxState
 
+import jux.map_generator.flood
 import jux.tree_util
 from jux.actions import FactoryAction, JuxAction, UnitAction, UnitActionType
 from jux.config import EnvConfig, JuxBufferConfig
@@ -37,7 +38,7 @@ batch_into_leaf_jitted = jax.jit(jux.tree_util.batch_into_leaf, static_argnames=
 class State(NamedTuple):
     env_cfg: EnvConfig
 
-    seed: int  # the seed for reproducibility
+    seed: jnp.uint32  # the seed for reproducibility
     rng_state: jax.random.KeyArray  # current rng state
 
     env_steps: jnp.int16
@@ -152,7 +153,7 @@ class State(NamedTuple):
     def new(cls, seed: int, env_cfg: EnvConfig, buf_cfg: JuxBufferConfig) -> "State":
         key = jax.random.PRNGKey(seed)
         board = Board.new(
-            seed=seed,
+            seed=jnp.uint32(seed),
             env_cfg=env_cfg,
             buf_cfg=buf_cfg,
         )
@@ -174,7 +175,7 @@ class State(NamedTuple):
 
         state = cls(
             env_cfg=env_cfg,
-            seed=seed,
+            seed=jnp.uint32(seed),
             rng_state=key,
             env_steps=State.__annotations__['env_steps'](0),
             board=board,
@@ -267,7 +268,7 @@ class State(NamedTuple):
 
             state = State(
                 env_cfg=env_cfg,
-                seed=seed,
+                seed=jnp.uint32(seed),
                 rng_state=jax.random.PRNGKey(seed),
                 env_steps=State.__annotations__['env_steps'](lux_state.env_steps),
                 board=Board.from_lux(lux_state.board, buf_cfg),
@@ -404,6 +405,15 @@ class State(NamedTuple):
             teams=lux_teams,
             global_id=int(self.global_id),
         )
+
+    def to_torch(self) -> 'State':
+        # convert seed from uint32 to int32, because torch does not support uint32
+        self = self._replace(
+            seed=self.seed.astype(jnp.int32),
+            rng_state=self.rng_state.astype(jnp.int32),
+            board=self.board._replace(seed=self.board.seed.astype(jnp.int32)),
+        )
+        return jax.tree_map(jux.torch.to_torch, self)
 
     def __eq__(self, other: 'State') -> bool:
         if not isinstance(other, State):
@@ -720,7 +730,7 @@ class State(NamedTuple):
 
         self = self.add_rubble_for_dead_units(dead)
 
-        color, grow_lichen_size = self._cache_water_info(factory_actions)
+        color, grow_lichen_size, connected_lichen_size = self._cache_water_info(factory_actions)
         self = self._handle_factory_water_actions(factory_actions, color, grow_lichen_size)
         self = self._handle_transfer_actions(unit_action, action_info['valid_transfer'])
         self = self._handle_pickup_actions(unit_action, action_info['valid_pickup'])
@@ -757,7 +767,7 @@ class State(NamedTuple):
         self = self._replace(factories=factories)
 
         # factories gain power
-        delta_power = self.env_cfg.FACTORY_CHARGE + grow_lichen_size * self.env_cfg.POWER_PER_CONNECTED_LICHEN_TILE
+        delta_power = self.env_cfg.FACTORY_CHARGE + connected_lichen_size * self.env_cfg.POWER_PER_CONNECTED_LICHEN_TILE
         new_factory_power = self.factories.power + jnp.where(self.factory_mask, delta_power, 0)
         self = self._replace(factories=self.factories._replace(power=new_factory_power))
 
@@ -1469,7 +1479,7 @@ class State(NamedTuple):
 
         return self
 
-    def _cache_water_info(self, factory_actions: Array) -> Tuple[Array, Array]:
+    def _cache_water_info(self, factory_actions: Array) -> Tuple[Array, Array, Array]:
         """
         Run flood fill algorithm to color cells. All cells to be watered by the
         same factory will have the same color.
@@ -1485,8 +1495,10 @@ class State(NamedTuple):
             grow_lichen_size: int[2, F].
                 The number of positions to be watered by each factory.
         """
-        # The key idea here is to prepare a list of neighbors for each cell it connects to when watered.
-        # neighbor_ij is a 4x2xHxW array, where the first dimension is the neighbors (4 at most), the second dimension is the 2 coordinates.
+        # The key idea here is to prepare a list of neighbors for each cell it
+        # connects to when watered. neighbor_ij is a 4x2xHxW array, where the
+        # first dimension is the neighbors (4 at most), the second dimension is
+        # the coordinates (x,y) of neighbors.
         H, W = self.board.lichen_strains.shape
 
         ij = jnp.mgrid[:H, :W].astype(Position.dtype())
@@ -1534,6 +1546,11 @@ class State(NamedTuple):
                                            .set(self.factories.unit_id, mode='drop')
         connected_lichen = connected_lichen.at[color[..., 0], color[..., 1]]\
                                            .get(mode='fill', fill_value=imax(connected_lichen.dtype))
+
+        # compute connected lichen size
+        connected_lichen_size = jux.map_generator.flood.component_sum(UnitCargo.dtype()(1), color)  # int[H, W]
+        # -9 for the factory occupied cells
+        connected_lichen_size = connected_lichen_size[self.factories.pos.x, self.factories.pos.y] - 9  # int[2, F]
 
         # 2. handle cells to expand to.
         # 2.1 cells that are allowed to expand to, only if
@@ -1588,7 +1605,7 @@ class State(NamedTuple):
         # -9 for the factory occupied cells
         grow_lichen_size = cmp_cnt[self.factories.pos.x, self.factories.pos.y] - 9  # int[2, F]
 
-        return color, grow_lichen_size
+        return color, grow_lichen_size, connected_lichen_size
 
     def _mars_quake(self) -> 'State':
         return self.add_rubble_for_dead_units(self.unit_mask)
