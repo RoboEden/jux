@@ -24,10 +24,14 @@ class GameMap(NamedTuple):
 
     @property
     def width(self) -> int:
+        if len(self.rubble.shape) == 3:
+            return self.rubble.shape[2]
         return self.rubble.shape[1]
 
     @property
     def height(self) -> int:
+        if len(self.rubble.shape) == 3:
+            return self.rubble.shape[1]
         return self.rubble.shape[0]
 
     @staticmethod
