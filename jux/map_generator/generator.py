@@ -24,11 +24,11 @@ class GameMap(NamedTuple):
 
     @property
     def width(self) -> int:
-        return self.rubble.shape[1]
+        return self.rubble.shape[-1]
 
     @property
     def height(self) -> int:
-        return self.rubble.shape[0]
+        return self.rubble.shape[-2]
 
     @staticmethod
     def new(rubble: Array, ice: Array, ore: Array, symmetry: SymmetryType) -> "GameMap":
