@@ -21,7 +21,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "luxai-s2==2.1.4",
+    "luxai-s2==2.1.9",
     # "jax[cuda]",
     "chex",
 ]

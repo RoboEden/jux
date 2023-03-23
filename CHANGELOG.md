@@ -1,4 +1,9 @@
 # Change Log
+## v2.1.1
+Major changes:
+    - Upgrade luxai_s2 dependency to v2.1.9.
+    - Fix batching issue for data with properties. `env.state.board.valid_spawns_mask` correctly works now.
+
 ## v2.1.0
 Major changes:
  - Implement same game logic as `luxai-s2==2.1.0`. See [Lux-Design-S2/ChangeLog.md](https://github.com/Lux-AI-Challenge/Lux-Design-S2/blob/v2.1.0/ChangeLog.md) for details.

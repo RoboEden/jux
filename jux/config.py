@@ -3,10 +3,10 @@ from copy import copy
 from typing import Any, Dict, NamedTuple, Tuple
 
 import jax
+import numpy as np
 from luxai_s2.config import EnvConfig as LuxEnvConfig
 from luxai_s2.config import UnitConfig as LuxUnitConfig
 
-import numpy as np
 
 class UnitConfig(NamedTuple):
     METAL_COST: int = 100
@@ -143,7 +143,17 @@ class EnvConfig(NamedTuple):
         return EnvConfig(**lux_env_config)
 
     def to_lux(self) -> LuxEnvConfig:
-        self = jax.tree_map(lambda x: np.array(x[0]).item() if len(x.shape) > 0 else x.item(), self)
+
+        def _to_lux(x):
+            if isinstance(x, jax.Array):
+                if len(x.shape) > 0:
+                    return np.array(x[0]).item()
+                else:
+                    return x.item()
+            else:
+                return x
+
+        self = jax.tree_map(_to_lux, self)
         self: Dict[str, Any] = self._asdict()
 
         self['ROBOTS'] = dict(

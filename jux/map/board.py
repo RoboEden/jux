@@ -84,7 +84,7 @@ class Board(NamedTuple):
     @property
     def ore(self) -> Array:
         return self.map.ore
-    
+
     @property
     def valid_spawns_mask(self) -> Array:  # bool[height, width]
         valid_spawns_mask = (~self.map.ice & ~self.map.ore)  # bool[..., height, width]
@@ -95,16 +95,14 @@ class Board(NamedTuple):
         valid_spawns_mask = valid_spawns_mask.at[..., [0, -1], :].set(False)
         valid_spawns_mask = valid_spawns_mask.at[..., :, [0, -1]].set(False)
 
+        batch_shape = valid_spawns_mask.shape[:-2]
         factory_overlap = self.factory_pos[..., None, :] + delta_xy  # int[..., 2 * MAX_N_FACTORIES, 85, 2]
-        batch_shape = factory_overlap.shape[:-3]
-        factory_overlap = factory_overlap.reshape(batch_shape + (-1, 2))
+        factory_overlap = factory_overlap.reshape(batch_shape + (-1, 2))  # int[..., 2 * MAX_N_FACTORIES * 85, 2]
         factory_overlap = jnp.clip(factory_overlap, 0, jnp.array([self.height - 1, self.width - 1]))
-        batch_idx = jnp.mgrid[[slice(0,b) for b in batch_shape]]
-        if batch_idx.shape == (0,):
-            valid_spawns_mask = valid_spawns_mask.at[factory_overlap[..., 0], factory_overlap[..., 1]].set(False, mode='drop')
-        else:
-            # TODO do a smarter solution later
-            valid_spawns_mask = valid_spawns_mask.at[batch_idx.repeat(factory_overlap.shape[1], axis=0).T, factory_overlap[..., 0], factory_overlap[..., 1]].set(False, mode='drop')
+
+        batch_idx = tuple(slice(None, b) for b in batch_shape)
+        valid_spawns_mask = valid_spawns_mask.at[(*batch_idx, factory_overlap[..., 0], factory_overlap[..., 1])]\
+                                             .set(False,mode='drop')
         return valid_spawns_mask
 
     @classmethod
