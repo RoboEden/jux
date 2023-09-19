@@ -1,8 +1,14 @@
 # Change Log
+
+Major Change:
+  - Python 3.7 is no longer supported. Please use python 3.8 or above.
+  - Add support for python 3.11.
+  - Migrate to jax 0.4.16. But to be compatible with pytorch, we still use `jax[cuda11_cudnn82]==0.4.7` by default.
+
 ## v2.1.1
 Major changes:
-    - Upgrade luxai_s2 dependency to v2.1.9.
-    - Fix batching issue for data with properties. `env.state.board.valid_spawns_mask` correctly works now.
+  - Upgrade luxai_s2 dependency to v2.1.9.
+  - Fix batching issue for data with properties. `env.state.board.valid_spawns_mask` correctly works now.
 
 ## v2.1.0
 Major changes:

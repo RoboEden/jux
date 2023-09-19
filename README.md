@@ -2,25 +2,38 @@
 JUX is a <ins>J</ins>ax-accelerated game core for L<ins>ux</ins> AI Challenge Season 2, aimed to maximize game environment throughput for reinforcement learning (RL) training.
 
 ## Installation
-### Install dependencies
-One of the main dependencies is JAX, which in turn relies on NVCC, CUDA Toolkit and cuDNN. There are two ways to get them ready, either by conda or docker (recommended).
-
-For conda users, you can install them with the following commands.
-```sh
-conda install -c nvidia cuda-nvcc cuda-python
-conda install cudnn
-```
-For docker users, you can use the [NVIDIA CUDA docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda) or the [PyTorch docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch), which has all of them ready and compatible with each other.
 
 ### Install JAX
-Please follow the [official installation guide](https://github.com/google/jax#installation) to install JAX. Note: JAX must be compatible with your cuDNN.
-- If cudnn >= 8.2 and < 8.6, please install `"jax[cuda11_cudnn82]"`.
-- If cudnn >= 8.6, please install `"jax[cuda11_cudnn86]"`.
+JAX is a main dependency of JUX, and must be installed by user manually.
+
+- If you need to work with both jax and pytorch, please install jax with version no more than `0.4.7`, e.g. `"jax[cuda11_cudnn82]==0.4.7"` by following command, so they can share the same cuDNN version (8.5). Newest jax requires higher cuDNN version, which is not compatible with pytorch.
+    ```sh
+    pip install --upgrade "jax[cuda11_cudnn82]==0.4.7" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+    ```
+
+- If you have no such requirement, you can install the latest version of jax by following the [official installation guide](https://github.com/google/jax#installation).
+
+You can test whether jax is installed successfully by running the following command.
+```sh
+python -c "import jax.numpy as jnp; \
+    a = jnp.convolve(jnp.array([1, 2, 3]), jnp.array([0, 1, 0.5])); \
+    print(a); \
+    print(a.device());"
+# You shall get something like this:
+# [0.  1.  2.5 4.  1.5]
+# gpu:0
+```
 
 ### Install JUX
 Finally, upgrade your pip and install JUX.
 ```sh
 pip install --upgrade pip
+
+# this is needed by gym, see
+#   - https://github.com/openai/gym/issues/3176#issuecomment-1408598628 and
+#   - https://github.com/freqtrade/freqtrade/issues/8376#issuecomment-1520844382
+pip install setuptools==65.5.1 wheel==0.38.4
+
 pip install juxai-s2
 ```
 

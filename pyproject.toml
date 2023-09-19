@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "juxai-s2"
 description = "JUX is a jax-accelerated engine for Lux-2022."
-requires-python = ">=3.7, <3.11"
+requires-python = ">=3.8, <3.12"
 license = { file = "LICENSE" }
 readme = "README.md"
 authors = [
