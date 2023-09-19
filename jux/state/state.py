@@ -111,8 +111,8 @@ class State(NamedTuple):
 
     @property
     def factory_mask(self):
-        factory_mask = self.factory_idx < self.n_factories[:, None]
-        chex.assert_shape(factory_mask, (2, self.MAX_N_FACTORIES))
+        factory_mask = self.factory_idx < self.n_factories[..., None]
+        chex.assert_shape(factory_mask, (..., 2, self.MAX_N_FACTORIES))
         return factory_mask
 
     @property
@@ -128,8 +128,8 @@ class State(NamedTuple):
 
     @property
     def unit_mask(self):
-        unit_mask = self.unit_idx < self.n_units[:, None]
-        chex.assert_shape(unit_mask, (2, self.MAX_N_UNITS))
+        unit_mask = self.unit_idx < self.n_units[..., None]
+        chex.assert_shape(unit_mask, (..., 2, self.MAX_N_UNITS))
         return unit_mask
 
     @property

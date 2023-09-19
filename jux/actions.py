@@ -171,7 +171,7 @@ class UnitAction(NamedTuple):
 
 
 class ActionQueue(NamedTuple):
-    data: UnitAction  # UnitAction[UNIT_ACTION_QUEUE_SIZE, 5]
+    data: UnitAction  # UnitAction[UNIT_ACTION_QUEUE_SIZE]
     front: jnp.int8 = jnp.int8(0)
     rear: jnp.int8 = jnp.int8(0)
     count: jnp.int8 = jnp.int8(0)

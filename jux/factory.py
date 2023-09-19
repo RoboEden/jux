@@ -25,7 +25,7 @@ class Factory(NamedTuple):
     @property
     def occupancy(self) -> Position:
         edge_pos = self.pos.pos[..., None, :] + direct2delta_xy[1:]  # [4, 2]
-        corner_pos = edge_pos + direct2delta_xy[[2, 3, 4, 1], ]  # [4, 2]
+        corner_pos = edge_pos + direct2delta_xy[[2, 3, 4, 1], :]  # [4, 2]
         occupy = jnp.concatenate([self.pos.pos[..., None, :], edge_pos, corner_pos], axis=-2)  # [9, 2]
         occupy = Position(occupy)
         return occupy
