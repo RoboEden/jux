@@ -28,17 +28,11 @@ python -c "import jax.numpy as jnp; \
 Finally, upgrade your pip and install JUX.
 ```sh
 pip install --upgrade pip
-
-# this is needed by gym, see
-#   - https://github.com/openai/gym/issues/3176#issuecomment-1408598628 and
-#   - https://github.com/freqtrade/freqtrade/issues/8376#issuecomment-1520844382
-pip install setuptools==65.5.1 wheel==0.38.4
-
 pip install juxai-s2
 ```
 
 ## Usage
-See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai_s2==2.1.9`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI-S2 may process them differently.
+See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai_s2==3.0.0`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI-S2 may process them differently.
 
 ## Performance
 JUX maps all game logic to array operators in JAX so that we can harvest the computational power of modern GPUs and support tons of environments running in parallel. We benchmarked JUX on several different GPUs, and increased the throughput by hundreds to thousands of times, compared with the original single-thread Python implementation.
