@@ -1,5 +1,6 @@
 # Change Log
 
+## v2.2.0
 Major Change:
   - Migrate to `luxai-s2==2.2.0`.
   - Python 3.7 is no longer supported. Please use python 3.8 or above.
