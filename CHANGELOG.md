@@ -1,9 +1,10 @@
 # Change Log
 
 Major Change:
+  - Migrate to `luxai-s2==2.2.0`.
   - Python 3.7 is no longer supported. Please use python 3.8 or above.
   - Add support for python 3.11.
-  - Migrate to jax 0.4.16. But to be compatible with pytorch, we still use `jax[cuda11_cudnn82]==0.4.7` by default.
+  - Migrate to jax 0.4.16. But to be compatible with pytorch, we use `jax[cuda11_cudnn82]==0.4.7` by default.
 
 Fix:
  - Class properties work correctly in batched mode now.

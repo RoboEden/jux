@@ -239,7 +239,7 @@ class TestState(chex.TestCase):
     def test_team_lichen_score(self):
         env, actions = jux.utils.load_replay("https://www.kaggleusercontent.com/episodes/46215591.json")
         for act in actions:
-            _, lux_rewards, _, _ = env.step(act)
+            _, lux_rewards, _, _, _ = env.step(act)
         lux_rewards = jnp.array(list(lux_rewards.values()))
 
         buf_cfg = JuxBufferConfig(MAX_N_UNITS=200)
@@ -262,7 +262,7 @@ class TestEarlyStageState(chex.TestCase):
         for seed in range(10):
             random.seed(seed)
             env = LuxAI_S2()
-            obs = env.reset(seed)
+            obs, _ = env.reset(seed)
             n_factory = (-obs['player_0']['real_env_steps'] - 1) // 2
             init_water_metal = env.env_cfg.INIT_WATER_METAL_PER_FACTORY * n_factory
             bid_range = (-init_water_metal, init_water_metal)
@@ -332,11 +332,11 @@ class TestEarlyStageState(chex.TestCase):
 
             # create env
             env = LuxAI_S2()
-            obs = env.reset(seed)
+            obs, _ = env.reset(seed)
 
             np.random.seed(seed)
             # skip bid step
-            obs, _, _, _ = env.step({
+            obs, _, _, _, _ = env.step({
                 'player_0': {
                     'bid': np.random.randint(-3, 3),
                     'faction': FactionTypes(0).name,
@@ -378,7 +378,7 @@ class TestEarlyStageState(chex.TestCase):
                 # valid = obs['player_0']['board']['valid_spawns_mask'][spawn[0], spawn[1]]
 
                 # step
-                obs, _, _, _ = env.step(lux_act)
+                obs, _, _, _, _ = env.step(lux_act)
                 jux_state = state_step_factory_placement(jux_state, *jux_act)
 
                 lux_state = State.from_lux(env.state)

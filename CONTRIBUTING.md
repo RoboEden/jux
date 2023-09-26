@@ -4,13 +4,9 @@ We are going to support `python>=3.8,<3.12`.
 
 ### Install JAX
 JAX is a main dependency of JUX, and must be installed by user manually.
-
-- If you need to work with both jax and pytorch, please install jax with version no more than `0.4.7`, e.g. `"jax[cuda11_cudnn82]==0.4.7"` by following command, so they can share the same cuDNN version (8.5). Newest jax requires higher cuDNN version, which is not compatible with pytorch.
-    ```sh
-    pip install --upgrade "jax[cuda11_cudnn82]==0.4.7" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-    ```
-
-- If you have no such requirement, you can install the latest version of jax by following the [official installation guide](https://github.com/google/jax#installation).
+```sh
+pip install --upgrade "jax[cuda11_cudnn82]==0.4.7" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+```
 
 You can test whether jax is installed successfully by running the following command.
 ```sh
@@ -27,12 +23,6 @@ python -c "import jax.numpy as jnp; \
 Finally, upgrade your pip and install JUX.
 ```sh
 pip install --upgrade pip
-
-# this is needed by gym, see
-#     - https://github.com/openai/gym/issues/3176#issuecomment-1408598628 and
-#     - https://github.com/freqtrade/freqtrade/issues/8376#issuecomment-1520844382
-pip install setuptools==65.5.1 wheel==0.38.4
-
 pip install -e '.[dev,torch]'
 ```
 

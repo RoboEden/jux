@@ -20,11 +20,7 @@ classifiers = [
     "Topic :: Games/Entertainment :: Real Time Strategy",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = [
-    "luxai-s2==2.1.9",
-    # "jax[cuda]",
-    "chex",
-]
+dependencies = ["luxai-s2==2.2.0", "jax[cuda11_cudnn82]==0.4.7", "chex"]
 dynamic = ["version"]
 
 [project.urls]
@@ -58,6 +54,8 @@ dev = [
 
 [tool.setuptools.dynamic]
 version = { attr = "jux.__version__" }
+
+[tool.setuptools_scm]
 
 [tool.yapf]
 column_limit = 120

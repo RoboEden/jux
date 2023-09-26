@@ -5,13 +5,9 @@ JUX is a <ins>J</ins>ax-accelerated game core for L<ins>ux</ins> AI Challenge Se
 
 ### Install JAX
 JAX is a main dependency of JUX, and must be installed by user manually.
-
-- If you need to work with both jax and pytorch, please install jax with version no more than `0.4.7`, e.g. `"jax[cuda11_cudnn82]==0.4.7"` by following command, so they can share the same cuDNN version (8.5). Newest jax requires higher cuDNN version, which is not compatible with pytorch.
-    ```sh
-    pip install --upgrade "jax[cuda11_cudnn82]==0.4.7" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-    ```
-
-- If you have no such requirement, you can install the latest version of jax by following the [official installation guide](https://github.com/google/jax#installation).
+```sh
+pip install --upgrade "jax[cuda11_cudnn82]==0.4.7" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+```
 
 You can test whether jax is installed successfully by running the following command.
 ```sh
@@ -28,17 +24,11 @@ python -c "import jax.numpy as jnp; \
 Finally, upgrade your pip and install JUX.
 ```sh
 pip install --upgrade pip
-
-# this is needed by gym, see
-#   - https://github.com/openai/gym/issues/3176#issuecomment-1408598628 and
-#   - https://github.com/freqtrade/freqtrade/issues/8376#issuecomment-1520844382
-pip install setuptools==65.5.1 wheel==0.38.4
-
 pip install juxai-s2
 ```
 
 ## Usage
-See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai_s2==2.1.9`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI-S2 may process them differently.
+See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai_s2==2.2.0`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI-S2 may process them differently.
 
 ## Performance
 JUX maps all game logic to array operators in JAX so that we can harvest the computational power of modern GPUs and support tons of environments running in parallel. We benchmarked JUX on several different GPUs, and increased the throughput by hundreds to thousands of times, compared with the original single-thread Python implementation.
