@@ -1,5 +1,8 @@
 # Change Log
 
+Major Change:
+  - Migrate to `luxai-s2==3.0.0`.
+
 ## v2.2.0
 Major Change:
   - Migrate to `luxai-s2==2.2.0`.

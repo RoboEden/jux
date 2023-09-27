@@ -20,7 +20,11 @@ classifiers = [
     "Topic :: Games/Entertainment :: Real Time Strategy",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = ["luxai-s2==2.2.0", "jax[cuda11_cudnn82]==0.4.7", "chex"]
+dependencies = [
+    "luxai-s2==3.0.0",
+    "jax[cuda11_cudnn82]==0.4.7",
+    "chex",
+]
 dynamic = ["version"]
 
 [project.urls]
