@@ -2,20 +2,23 @@
 JUX is a <ins>J</ins>ax-accelerated game core for L<ins>ux</ins> AI Challenge Season 2, aimed to maximize game environment throughput for reinforcement learning (RL) training.
 
 ## Installation
-### Install dependencies
-One of the main dependencies is JAX, which in turn relies on NVCC, CUDA Toolkit and cuDNN. There are two ways to get them ready, either by conda or docker (recommended).
-
-For conda users, you can install them with the following commands.
-```sh
-conda install -c nvidia cuda-nvcc cuda-python
-conda install cudnn
-```
-For docker users, you can use the [NVIDIA CUDA docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda) or the [PyTorch docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch), which has all of them ready and compatible with each other.
 
 ### Install JAX
-Please follow the [official installation guide](https://github.com/google/jax#installation) to install JAX. Note: JAX must be compatible with your cuDNN.
-- If cudnn >= 8.2 and < 8.6, please install `"jax[cuda11_cudnn82]"`.
-- If cudnn >= 8.6, please install `"jax[cuda11_cudnn86]"`.
+JAX is a main dependency of JUX, and must be installed by user manually.
+```sh
+pip install --upgrade "jax[cuda11_cudnn82]==0.4.7" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+```
+
+You can test whether jax is installed successfully by running the following command.
+```sh
+python -c "import jax.numpy as jnp; \
+    a = jnp.convolve(jnp.array([1, 2, 3]), jnp.array([0, 1, 0.5])); \
+    print(a); \
+    print(a.device());"
+# You shall get something like this:
+# [0.  1.  2.5 4.  1.5]
+# gpu:0
+```
 
 ### Install JUX
 Finally, upgrade your pip and install JUX.
@@ -25,7 +28,7 @@ pip install juxai-s2
 ```
 
 ## Usage
-See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai_s2==2.1.9`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI-S2 may process them differently.
+See [tutorial.ipynb](tutorial.ipynb) for a quick start. JUX is guaranteed to implement the same game logic as `luxai_s2==3.0.0`, if players' input actions are valid. When players' input actions are invalid, JUX and LuxAI-S2 may process them differently.
 
 ## Performance
 JUX maps all game logic to array operators in JAX so that we can harvest the computational power of modern GPUs and support tons of environments running in parallel. We benchmarked JUX on several different GPUs, and increased the throughput by hundreds to thousands of times, compared with the original single-thread Python implementation.

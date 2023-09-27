@@ -2,6 +2,7 @@ from typing import List
 
 import chex
 import numpy as np
+import pytest
 from luxai_s2 import actions as lux_actions
 from luxai_s2.actions import Action as LuxAction
 
@@ -73,6 +74,11 @@ class TestActionQueue(chex.TestCase):
 class TestJuxAction():
 
     def test_to_from_lux_torch(self):
+        try:
+            import torch
+        except ImportError:
+            pytest.skip("torch is not installed")
+
         env, actions = jux.utils.load_replay("tests/replay2.0_0.json.gz")
         while env.env_steps < 30:
             act = next(actions)

@@ -36,7 +36,7 @@ class TestJuxEnv:
         lux_act = next(actions)
         jux_bid, jux_faction = jux.actions.bid_action_from_lux(lux_act)
 
-        lux_obs, lux_rewards, lux_dones, lux_infos = lux_env.step(lux_act)
+        lux_obs, lux_rewards, lux_dones, truncations, lux_infos = lux_env.step(lux_act)
         jux_state, (jux_obs, jux_rewards, jux_dones, jux_infos) = jux_env.step_bid(jux_state, jux_bid, jux_faction)
 
         lux_obs = lux_obs['player_0']
@@ -60,7 +60,7 @@ class TestJuxEnv:
             lux_act = next(actions)
             jux_act = jux.actions.factory_placement_action_from_lux(lux_act)
 
-            lux_obs, lux_rewards, lux_dones, lux_infos = lux_env.step(lux_act)
+            lux_obs, lux_rewards, lux_dones, truncations, lux_infos = lux_env.step(lux_act)
             jux_state, (jux_obs, jux_rewards, jux_dones,
                         jux_infos) = jux_env.step_factory_placement(jux_state, *jux_act)
 
@@ -105,7 +105,7 @@ class TestJuxEnv:
             for i, lux_act in enumerate(actions):
                 print(f"steps: {lux_env.env_steps}")
 
-                lux_obs, lux_rewards, lux_dones, lux_infos = lux_env.step(lux_act)
+                lux_obs, lux_rewards, lux_dones, truncations, lux_infos = lux_env.step(lux_act)
 
                 jux_act = JuxAction.from_lux(jux_state, lux_act)
                 jux_state, (jux_obs, jux_rewards, jux_dones, jux_infos) = jux_env.step_late_game(jux_state, jux_act)

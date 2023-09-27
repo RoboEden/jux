@@ -1,21 +1,23 @@
 # Development Setup
 
-We are going to support `python>=3.7,<3.11`.
-
-## Install requirements
-Make sure you have nvcc, cuda-toolkit and cudnn installed. There are two ways to get them ready, either by conda or docker (recommended).
-
-For conda users, you can install them with the following commands.
-```sh
-conda install -c nvidia cuda-nvcc cuda-python
-conda install cudnn
-```
-For docker users, you can use the [NVIDIA CUDA docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/cuda) or the [PyTorch docker image](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch), which has all of them ready and compatible with each other.
+We are going to support `python>=3.8,<3.12`.
 
 ### Install JAX
-Please follow the [official installation guide](https://github.com/google/jax#installation) to install JAX. Note: JAX must be compatible with your cuDNN.
-- If cudnn >= 8.2 and < 8.6, please install `"jax[cuda11_cudnn82]"`.
-- If cudnn >= 8.6, please install `"jax[cuda11_cudnn86]"`.
+JAX is a main dependency of JUX, and must be installed by user manually.
+```sh
+pip install --upgrade "jax[cuda11_cudnn82]==0.4.7" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+```
+
+You can test whether jax is installed successfully by running the following command.
+```sh
+python -c "import jax.numpy as jnp; \
+    a = jnp.convolve(jnp.array([1, 2, 3]), jnp.array([0, 1, 0.5])); \
+    print(a); \
+    print(a.device());"
+# You shall get something like this:
+# [0.  1.  2.5 4.  1.5]
+# gpu:0
+```
 
 ### Install JUX
 Finally, upgrade your pip and install JUX.

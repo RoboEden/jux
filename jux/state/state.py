@@ -39,7 +39,7 @@ class State(NamedTuple):
     env_cfg: EnvConfig
 
     seed: jnp.uint32  # the seed for reproducibility
-    rng_state: jax.random.KeyArray  # current rng state
+    rng_state: jax.Array  # current rng state
 
     env_steps: jnp.int16
     board: Board
@@ -111,8 +111,8 @@ class State(NamedTuple):
 
     @property
     def factory_mask(self):
-        factory_mask = self.factory_idx < self.n_factories[:, None]
-        chex.assert_shape(factory_mask, (2, self.MAX_N_FACTORIES))
+        factory_mask = self.factory_idx < self.n_factories[..., None]
+        chex.assert_shape(factory_mask, (..., 2, self.MAX_N_FACTORIES))
         return factory_mask
 
     @property
@@ -128,8 +128,8 @@ class State(NamedTuple):
 
     @property
     def unit_mask(self):
-        unit_mask = self.unit_idx < self.n_units[:, None]
-        chex.assert_shape(unit_mask, (2, self.MAX_N_UNITS))
+        unit_mask = self.unit_idx < self.n_units[..., None]
+        chex.assert_shape(unit_mask, (..., 2, self.MAX_N_UNITS))
         return unit_mask
 
     @property
@@ -818,12 +818,12 @@ class State(NamedTuple):
         target_pos = Position(self.units.pos.pos + direct2delta_xy[actions.direction])  # int[2, U, 2]
         target_factory_id = self.board.factory_occupancy_map[target_pos.x, target_pos.y]  # int[2, U]
         target_factory_idx = self.factory_id2idx.at[target_factory_id] \
-                                                .get('fill', fill_value=imax(self.factory_id2idx.dtype))  # int[2, U, 2]
+                                                .get(mode='fill', fill_value=imax(self.factory_id2idx.dtype))  # int[2, U, 2]
         there_is_a_factory = target_factory_idx[..., 1] < self.n_factories[target_factory_idx[..., 0]]  # bool[2, U]
 
         target_unit_id = self.board.units_map[target_pos.x, target_pos.y]  # int[2, U]
         target_unit_idx = self.unit_id2idx.at[target_unit_id] \
-                                          .get('fill', fill_value=imax(self.unit_id2idx.dtype))  # int[2, U, 2]
+                                          .get(mode='fill', fill_value=imax(self.unit_id2idx.dtype))  # int[2, U, 2]
         there_is_an_unit = target_unit_idx[..., 1] < self.n_units[target_unit_idx[..., 0]]  # bool[2, U]
 
         transfer_to_factory = valid & there_is_a_factory  # bool[2, U]

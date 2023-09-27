@@ -42,8 +42,8 @@ class TestGameMap(chex.TestCase):
         seed = 42
         map_type = MapType.MOUNTAIN
         symmetry = SymmetryType.HORIZONTAL
-        width = 48
-        height = 48
+        width = 64
+        height = 64
         # config.update("jax_disable_jit", True)
         map_generator = self.variant(
             GameMap.random_map,

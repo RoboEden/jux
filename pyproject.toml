@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "juxai-s2"
 description = "JUX is a jax-accelerated engine for Lux-2022."
-requires-python = ">=3.7, <3.11"
+requires-python = ">=3.8, <3.12"
 license = { file = "LICENSE" }
 readme = "README.md"
 authors = [
@@ -21,8 +21,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "luxai-s2==2.1.9",
-    # "jax[cuda]",
+    "luxai-s2==3.0.0",
+    "jax[cuda11_cudnn82]==0.4.7",
     "chex",
 ]
 dynamic = ["version"]
@@ -58,6 +58,8 @@ dev = [
 
 [tool.setuptools.dynamic]
 version = { attr = "jux.__version__" }
+
+[tool.setuptools_scm]
 
 [tool.yapf]
 column_limit = 120

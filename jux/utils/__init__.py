@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import luxai_s2
 import numpy as np
 from luxai_s2 import LuxAI_S2
+from luxai_s2.config import UnitConfig
 
 INT32_MAX = jnp.iinfo(jnp.int32).max
 INT16_MAX = jnp.iinfo(jnp.int16).max
@@ -64,12 +65,17 @@ def load_replay(replay: str) -> Tuple[LuxAI_S2, Generator[Dict, None, None]]:
     if 'configuration' in replay:
         # kaggle replay
         seed = replay['configuration']['seed']
-        env = LuxAI_S2()
+        replay['configuration']['env_cfg']['ROBOTS'] = {
+            'HEAVY': UnitConfig(**replay['configuration']['env_cfg']['ROBOTS']['HEAVY']),
+            'LIGHT': UnitConfig(**replay['configuration']['env_cfg']['ROBOTS']['LIGHT']),
+        }
+        env = LuxAI_S2(**replay['configuration']['env_cfg'])
         env.reset(seed=seed)
         actions = get_actions_from_replay(replay, replay['version'])
     elif 'observations' in replay and 'actions' in replay:
         # luxai_runner replay
         env = LuxAI_S2()
+        env.env_cfg.map_size = len(replay['observations'][0]['board']['rubble'])
         env.reset()
 
         # load board
