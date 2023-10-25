@@ -143,8 +143,8 @@ class JuxEnv:
         # perfect info game, so observations = state
         observations = {'player_0': state, 'player_1': state}
 
-        # rewards = lichen. There is 1000 penalty for losing all factories.
-        rewards = state.team_lichen_score() - (state.n_factories == 0) * 1000
+        # rewards = lichen, unless if player loses all factories, then -1000
+        rewards = jnp.where(state.n_factories > 0, state.team_lichen_score(), -1000)
 
         # info is empty
         infos = {'player_0': {}, 'player_1': {}}
