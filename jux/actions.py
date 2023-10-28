@@ -386,9 +386,12 @@ class JuxAction(NamedTuple):
                     assert 0 <= idx < state.n_units[player_id]
 
                     queue_size = len(action)
-                    action = np.array(action)
-                    for i in range(len(UnitAction._fields)):
-                        unit_action_queue[i][player_id, idx, :queue_size] = action[:, i]
+
+                    if queue_size > 0:
+                        action = np.array(action)
+                        for i in range(len(UnitAction._fields)):
+                            unit_action_queue[i][player_id, idx, :queue_size] = action[:, i]
+                            
                     unit_action_queue_count[player_id, idx] = queue_size
                     unit_action_queue_update[player_id, idx] = True
                 else:

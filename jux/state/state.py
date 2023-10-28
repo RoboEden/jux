@@ -681,7 +681,7 @@ class State(NamedTuple):
             ),
             count=jnp.where(update_queue, actions.unit_action_queue_count, self.units.action_queue.count),
             front=jnp.where(update_queue, 0, self.units.action_queue.front),
-            rear=jnp.where(update_queue, actions.unit_action_queue_count, self.units.action_queue.rear),
+            rear=jnp.where(update_queue, actions.unit_action_queue_count % self.UNIT_ACTION_QUEUE_SIZE, self.units.action_queue.rear),
         )
         new_self: State = self._replace(units=self.units._replace(
             power=new_power,
